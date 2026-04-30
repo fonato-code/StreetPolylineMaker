@@ -26,12 +26,16 @@ class StreetPolylineMakerApp {
     this.radiusPresets = [50, 100, 150, 250, 500];
     this.rotationDrag = { active: false, lastX: 0, wasGestureHandling: "auto" };
     this.sidebarResize = { active: false, startX: 0, startWidth: 320 };
+    this.mapsApiModalLocked = false;
 
     this.elements = {
       appShell: document.getElementById("appShell"),
       sidebar: document.getElementById("sidebar"),
       sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
       toggleSidebar: document.getElementById("toggleSidebar"),
+      mapsApiModal: document.getElementById("mapsApiModal"),
+      openMapsApiModal: document.getElementById("openMapsApiModal"),
+      closeMapsApiModal: document.getElementById("closeMapsApiModal"),
       apiKey: document.getElementById("apiKey"),
       saveApiKey: document.getElementById("saveApiKey"),
       loadMap: document.getElementById("loadMap"),
@@ -72,13 +76,21 @@ class StreetPolylineMakerApp {
     this.updateSummary();
     this.updateExportPreviewToggleUi();
     this.updateImportedToggleUi();
+    void this.bootstrapMapsFlow();
   }
 
   attachUiEvents() {
     this.elements.toggleSidebar.addEventListener("click", () => this.toggleSidebar());
     this.elements.sidebarResizeHandle.addEventListener("mousedown", (event) => this.startSidebarResize(event));
+    this.elements.openMapsApiModal.addEventListener("click", () => this.openMapsApiSettings());
+    this.elements.closeMapsApiModal.addEventListener("click", () => this.elements.mapsApiModal.close());
+    this.elements.mapsApiModal.addEventListener("cancel", (event) => {
+      if (this.mapsApiModalLocked) {
+        event.preventDefault();
+      }
+    });
     this.elements.saveApiKey.addEventListener("click", () => this.saveApiKey());
-    this.elements.loadMap.addEventListener("click", () => this.loadMap());
+    this.elements.loadMap.addEventListener("click", () => void this.loadMap());
     this.elements.exportData.addEventListener("click", () => this.exportAll());
     this.elements.toggleExportPreview.addEventListener("click", () => this.toggleExportPreview());
     this.elements.openImportModal.addEventListener("click", () => this.openModal(this.elements.importModal));
@@ -108,6 +120,51 @@ class StreetPolylineMakerApp {
         }
       });
     });
+
+    this.elements.mapsApiModal.addEventListener("click", (event) => {
+      if (event.target === this.elements.mapsApiModal && !this.mapsApiModalLocked) {
+        this.elements.mapsApiModal.close();
+      }
+    });
+  }
+
+  openMapsApiGate() {
+    this.mapsApiModalLocked = true;
+    this.elements.closeMapsApiModal.hidden = true;
+    this.openModal(this.elements.mapsApiModal);
+  }
+
+  openMapsApiSettings() {
+    this.mapsApiModalLocked = false;
+    this.elements.closeMapsApiModal.hidden = false;
+    this.openModal(this.elements.mapsApiModal);
+  }
+
+  async bootstrapMapsFlow() {
+    const sessionKey = sessionStorage.getItem(STORAGE_KEYS.apiKey);
+    if (sessionKey) {
+      this.elements.apiKey.value = sessionKey;
+      const ok = await this.loadMap();
+      if (!ok) {
+        sessionStorage.removeItem(STORAGE_KEYS.apiKey);
+        this.openMapsApiGate();
+      }
+      return;
+    }
+
+    this.openMapsApiGate();
+  }
+
+  finalizeMapsSession(apiKey) {
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      return;
+    }
+    sessionStorage.setItem(STORAGE_KEYS.apiKey, trimmed);
+    this.mapsApiModalLocked = false;
+    if (this.elements.mapsApiModal.hasAttribute("open")) {
+      this.elements.mapsApiModal.close();
+    }
   }
 
   handleKeydown(event) {
@@ -165,7 +222,7 @@ class StreetPolylineMakerApp {
     const apiKey = this.elements.apiKey.value.trim() || localStorage.getItem(STORAGE_KEYS.apiKey) || "";
     if (!apiKey) {
       this.setMapStatus("A pagina precisa de uma API key do Google Maps para carregar o mapa.", true);
-      return;
+      return false;
     }
 
     if (!this.google) {
@@ -174,18 +231,21 @@ class StreetPolylineMakerApp {
         await this.injectGoogleMaps(apiKey);
       } catch (error) {
         this.setMapStatus(`Falha ao carregar Google Maps: ${error.message}`, true);
-        return;
+        return false;
       }
     }
 
     if (this.mapReady) {
       this.setMapStatus("O mapa ja esta carregado.");
-      return;
+      this.finalizeMapsSession(apiKey);
+      return true;
     }
 
     this.initializeMap();
     this.setMapStatus("Mapa carregado. Clique para comecar a marcar a rodovia.");
     this.loadDraftFromStorage();
+    this.finalizeMapsSession(apiKey);
+    return true;
   }
 
   injectGoogleMaps(apiKey) {
