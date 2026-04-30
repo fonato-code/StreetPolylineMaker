@@ -31,6 +31,8 @@ class StreetPolylineMakerApp {
     this.streetViewPanorama = null;
     this.streetViewVisible = false;
     this.streetViewFocusedIndex = null;
+    this.streetViewFocusedPreviewIndex = null;
+    this.previewExportPoints = [];
     this.streetViewResize = { active: false, startY: 0, startHeight: 0 };
     this.anchorsOnMapVisible = true;
 
@@ -387,7 +389,8 @@ class StreetPolylineMakerApp {
   }
 
   applyStreetViewNear(location, options = {}) {
-    const focusIndexOpt = options.focusIndex;
+    const focusAnchorIndexOpt = options.focusAnchorIndex;
+    const focusPreviewIndexOpt = options.focusPreviewIndex;
     if (!this.mapReady || !this.streetViewService) {
       return;
     }
@@ -413,12 +416,18 @@ class StreetPolylineMakerApp {
         this.elements.mapStage.style.setProperty("--street-view-panel-height", `${Math.max(160, Math.min(h, 520))}px`);
       }
       this.streetViewVisible = true;
-      if (typeof focusIndexOpt === "number" && focusIndexOpt >= 0 && focusIndexOpt < this.anchorPoints.length) {
-        this.streetViewFocusedIndex = focusIndexOpt;
+      if (typeof focusAnchorIndexOpt === "number" && focusAnchorIndexOpt >= 0 && focusAnchorIndexOpt < this.anchorPoints.length) {
+        this.streetViewFocusedIndex = focusAnchorIndexOpt;
+        this.streetViewFocusedPreviewIndex = null;
+      } else if (typeof focusPreviewIndexOpt === "number" && focusPreviewIndexOpt >= 0 && focusPreviewIndexOpt < this.previewExportMarkers.length) {
+        this.streetViewFocusedPreviewIndex = focusPreviewIndexOpt;
+        this.streetViewFocusedIndex = null;
       } else {
         this.streetViewFocusedIndex = null;
+        this.streetViewFocusedPreviewIndex = null;
       }
       this.refreshAnchorVisuals();
+      this.refreshExportPreviewVisuals();
       this.updateStreetViewToggleUi();
       window.requestAnimationFrame(() => {
         this.google.maps.event.trigger(this.map, "resize");
@@ -447,7 +456,9 @@ class StreetPolylineMakerApp {
     this.elements.mapStage.classList.remove("map-stage--split");
     this.streetViewVisible = false;
     this.streetViewFocusedIndex = null;
+    this.streetViewFocusedPreviewIndex = null;
     this.refreshAnchorVisuals();
+    this.refreshExportPreviewVisuals();
     this.updateStreetViewToggleUi();
     if (this.mapReady) {
       window.requestAnimationFrame(() => {
@@ -663,7 +674,7 @@ class StreetPolylineMakerApp {
       const focusIndex = this.anchorPoints.findIndex((p) => p.id === point.id);
       this.applyStreetViewNear(
         { lat: point.latitude, lng: point.longitude },
-        { focusIndex: focusIndex >= 0 ? focusIndex : null },
+        { focusAnchorIndex: focusIndex >= 0 ? focusIndex : null },
       );
       return;
     }
@@ -835,9 +846,11 @@ class StreetPolylineMakerApp {
     }
 
     const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters());
+    this.previewExportPoints = exportPoints;
     const stepM = this.getExportStepMeters();
     const pointsPerKm = Math.max(1, Math.round(1000 / stepM));
     exportPoints.forEach((point, index) => this.renderExportPreviewPoint(point, index, pointsPerKm));
+    this.refreshExportPreviewVisuals();
   }
 
   clearExportPreview() {
@@ -845,6 +858,68 @@ class StreetPolylineMakerApp {
     this.previewExportCircles.forEach((circle) => circle.setMap(null));
     this.previewExportMarkers = [];
     this.previewExportCircles = [];
+    this.previewExportPoints = [];
+    this.streetViewFocusedPreviewIndex = null;
+  }
+
+  buildExportPreviewMarkerIcon(isKilometerPoint, color, focused) {
+    return {
+      path: this.google.maps.SymbolPath.CIRCLE,
+      fillColor: color,
+      fillOpacity: 0.96,
+      strokeColor: focused ? "#e0f2fe" : "#020617",
+      strokeWeight: focused
+        ? (isKilometerPoint ? 3 : 2.5)
+        : (isKilometerPoint ? 2 : 1.5),
+      scale: focused
+        ? (isKilometerPoint ? 9 : 6.5)
+        : (isKilometerPoint ? 7 : 5),
+    };
+  }
+
+  applyExportPreviewCircleStyle(circle, isKilometerPoint, color, focused, previewRadiusM) {
+    circle.setOptions({
+      strokeColor: focused ? "#e0f2fe" : color,
+      strokeOpacity: focused ? 1 : (isKilometerPoint ? 0.62 : 0.28),
+      strokeWeight: focused ? 3 : (isKilometerPoint ? 2 : 1),
+      fillColor: color,
+      fillOpacity: focused
+        ? (isKilometerPoint ? 0.22 : 0.12)
+        : (isKilometerPoint ? 0.1 : 0.03),
+      radius: previewRadiusM,
+    });
+  }
+
+  refreshExportPreviewVisuals() {
+    if (!this.mapReady || this.previewExportPoints.length === 0) {
+      return;
+    }
+    const stepM = this.getExportStepMeters();
+    const pointsPerKm = Math.max(1, Math.round(1000 / stepM));
+    const previewRadiusM = this.getPreviewCircleRadiusMeters(stepM);
+    this.previewExportPoints.forEach((point, index) => {
+      const marker = this.previewExportMarkers[index];
+      const circle = this.previewExportCircles[index];
+      if (!marker || !circle) {
+        return;
+      }
+      const isKilometerPoint = index % pointsPerKm === 0;
+      const color = isKilometerPoint ? "#f59e0b" : "#38bdf8";
+      const focused = this.streetViewVisible && index === this.streetViewFocusedPreviewIndex;
+      marker.setIcon(this.buildExportPreviewMarkerIcon(isKilometerPoint, color, focused));
+      marker.setZIndex(focused ? 950 : (isKilometerPoint ? 900 : 700));
+      this.applyExportPreviewCircleStyle(circle, isKilometerPoint, color, focused, previewRadiusM);
+    });
+  }
+
+  handleExportPreviewClick(point, index) {
+    if (!this.streetViewVisible) {
+      return;
+    }
+    this.applyStreetViewNear(
+      { lat: Number(point.latitude), lng: Number(point.longitude) },
+      { focusPreviewIndex: index },
+    );
   }
 
   renderExportPreviewPoint(point, index, pointsPerKm) {
@@ -852,20 +927,14 @@ class StreetPolylineMakerApp {
     const color = isKilometerPoint ? "#f59e0b" : "#38bdf8";
     const previewRadiusM = this.getPreviewCircleRadiusMeters(this.getExportStepMeters());
     const position = { lat: Number(point.latitude), lng: Number(point.longitude) };
+    const focused = false;
     const marker = new this.google.maps.Marker({
       position,
       map: this.map,
-      clickable: false,
+      clickable: true,
       zIndex: isKilometerPoint ? 900 : 700,
       title: `${point.rodovia || "Rodovia"} km ${point.km}`,
-      icon: {
-        path: this.google.maps.SymbolPath.CIRCLE,
-        fillColor: color,
-        fillOpacity: 0.96,
-        strokeColor: "#020617",
-        strokeWeight: isKilometerPoint ? 2 : 1.5,
-        scale: isKilometerPoint ? 7 : 5,
-      },
+      icon: this.buildExportPreviewMarkerIcon(isKilometerPoint, color, focused),
     });
 
     const circle = new this.google.maps.Circle({
@@ -877,8 +946,11 @@ class StreetPolylineMakerApp {
       center: position,
       radius: previewRadiusM,
       map: this.map,
-      clickable: false,
+      clickable: true,
     });
+
+    marker.addListener("click", () => this.handleExportPreviewClick(point, index));
+    circle.addListener("click", () => this.handleExportPreviewClick(point, index));
 
     this.previewExportMarkers.push(marker);
     this.previewExportCircles.push(circle);
