@@ -5,8 +5,10 @@ const STORAGE_KEYS = {
 
 class StreetPolylineMakerApp {
   constructor() {
-    this.map = null;
     this.google = null;
+    this.map = null;
+    this.mapReady = false;
+    this.anchorPoints = [];
     this.anchorMarkers = [];
     this.anchorCircles = [];
     this.importedMarkers = [];
@@ -15,21 +17,22 @@ class StreetPolylineMakerApp {
     this.previewExportCircles = [];
     this.previewLine = null;
     this.previewRadius = null;
-    this.anchorPoints = [];
+    this.historyInfoWindow = null;
     this.lastCoordinate = null;
     this.currentKm = 0;
+    this.kmManuallyChanged = false;
     this.importedVisible = true;
     this.exportPreviewVisible = false;
-    this.kmManuallyChanged = false;
-    this.mapReady = false;
     this.radiusPresets = [50, 100, 150, 250, 500];
-    this.rotationDrag = { active: false, lastX: 0 };
-    this.historyInfoWindow = null;
+    this.rotationDrag = { active: false, lastX: 0, wasGestureHandling: "auto" };
+    this.sidebarResize = { active: false, startX: 0, startWidth: 320 };
 
     this.elements = {
-      apiKey: document.getElementById("apiKey"),
       appShell: document.getElementById("appShell"),
+      sidebar: document.getElementById("sidebar"),
+      sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
       toggleSidebar: document.getElementById("toggleSidebar"),
+      apiKey: document.getElementById("apiKey"),
       saveApiKey: document.getElementById("saveApiKey"),
       loadMap: document.getElementById("loadMap"),
       mapStatus: document.getElementById("mapStatus"),
@@ -39,17 +42,17 @@ class StreetPolylineMakerApp {
       displayName: document.getElementById("displayName"),
       defaultRadius: document.getElementById("defaultRadius"),
       exportStepKm: document.getElementById("exportStepKm"),
+      autoHideAnchors: document.getElementById("autoHideAnchors"),
       exportData: document.getElementById("exportData"),
       toggleExportPreview: document.getElementById("toggleExportPreview"),
-      exportModal: document.getElementById("exportModal"),
-      closeExportModal: document.getElementById("closeExportModal"),
-      importModal: document.getElementById("importModal"),
       openImportModal: document.getElementById("openImportModal"),
-      closeImportModal: document.getElementById("closeImportModal"),
       loadHistory: document.getElementById("loadHistory"),
       toggleImported: document.getElementById("toggleImported"),
       clearAll: document.getElementById("clearAll"),
-      autoHideAnchors: document.getElementById("autoHideAnchors"),
+      exportModal: document.getElementById("exportModal"),
+      closeExportModal: document.getElementById("closeExportModal"),
+      importModal: document.getElementById("importModal"),
+      closeImportModal: document.getElementById("closeImportModal"),
       importFile: document.getElementById("importFile"),
       importText: document.getElementById("importText"),
       importJson: document.getElementById("importJson"),
@@ -71,6 +74,7 @@ class StreetPolylineMakerApp {
 
   attachUiEvents() {
     this.elements.toggleSidebar.addEventListener("click", () => this.toggleSidebar());
+    this.elements.sidebarResizeHandle.addEventListener("mousedown", (event) => this.startSidebarResize(event));
     this.elements.saveApiKey.addEventListener("click", () => this.saveApiKey());
     this.elements.loadMap.addEventListener("click", () => this.loadMap());
     this.elements.exportData.addEventListener("click", () => this.exportAll());
@@ -91,36 +95,9 @@ class StreetPolylineMakerApp {
     this.elements.copySql.addEventListener("click", () => this.copyOutput(this.elements.sqlOutput));
     this.elements.copyJson.addEventListener("click", () => this.copyOutput(this.elements.jsonOutput));
 
-    document.addEventListener("keydown", (event) => {
-      if (event.ctrlKey && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        this.undoLastPoint();
-        return;
-      }
-
-      if (event.altKey) {
-        const key = event.key.toLowerCase();
-        if (key === "1") {
-          event.preventDefault();
-          this.adjustRadiusByPreset(1);
-          return;
-        }
-        if (key === "2") {
-          event.preventDefault();
-          this.adjustRadiusByPreset(-1);
-          return;
-        }
-        if (key === "q") {
-          event.preventDefault();
-          this.adjustRadiusByStep(50);
-          return;
-        }
-        if (key === "w") {
-          event.preventDefault();
-          this.adjustRadiusByStep(-50);
-        }
-      }
-    });
+    document.addEventListener("keydown", (event) => this.handleKeydown(event));
+    document.addEventListener("mousemove", (event) => this.handleSidebarResize(event));
+    document.addEventListener("mouseup", () => this.stopSidebarResize());
 
     [this.elements.importModal, this.elements.exportModal].forEach((modal) => {
       modal.addEventListener("click", (event) => {
@@ -131,53 +108,37 @@ class StreetPolylineMakerApp {
     });
   }
 
-  toggleSidebar() {
-    const isCollapsed = this.elements.appShell.classList.toggle("sidebar-collapsed");
-    this.elements.toggleSidebar.title = isCollapsed ? "Expandir painel" : "Minimizar painel";
-    this.elements.toggleSidebar.setAttribute("aria-label", this.elements.toggleSidebar.title);
-
-    if (this.mapReady) {
-      window.setTimeout(() => {
-        this.google.maps.event.trigger(this.map, "resize");
-        if (this.lastCoordinate) {
-          this.map.panTo(this.lastCoordinate);
-        }
-      }, 220);
-    }
-  }
-
-  openModal(modal) {
-    if (typeof modal.showModal === "function") {
-      modal.showModal();
+  handleKeydown(event) {
+    if (event.ctrlKey && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      this.undoLastPoint();
       return;
     }
 
-    modal.setAttribute("open", "");
-  }
-
-  adjustRadiusByPreset(direction) {
-    const currentRadius = this.getDefaultRadius();
-    if (direction > 0) {
-      const nextValue = this.radiusPresets.find((value) => value > currentRadius);
-      if (nextValue) {
-        this.elements.defaultRadius.value = nextValue;
-        this.syncPreviewRadius();
-      }
+    if (!event.altKey) {
       return;
     }
 
-    const previousValues = this.radiusPresets.filter((value) => value < currentRadius);
-    if (previousValues.length > 0) {
-      this.elements.defaultRadius.value = previousValues[previousValues.length - 1];
-      this.syncPreviewRadius();
+    const key = event.key.toLowerCase();
+    if (key === "1") {
+      event.preventDefault();
+      this.adjustRadiusByPreset(1);
+      return;
     }
-  }
-
-  adjustRadiusByStep(step) {
-    const currentRadius = this.getDefaultRadius();
-    const nextRadius = Math.max(50, Math.min(500, currentRadius + step));
-    this.elements.defaultRadius.value = nextRadius;
-    this.syncPreviewRadius();
+    if (key === "2") {
+      event.preventDefault();
+      this.adjustRadiusByPreset(-1);
+      return;
+    }
+    if (key === "q") {
+      event.preventDefault();
+      this.adjustRadiusByStep(50);
+      return;
+    }
+    if (key === "w") {
+      event.preventDefault();
+      this.adjustRadiusByStep(-50);
+    }
   }
 
   restorePreferences() {
@@ -191,7 +152,7 @@ class StreetPolylineMakerApp {
   saveApiKey() {
     const apiKey = this.elements.apiKey.value.trim();
     if (!apiKey) {
-      this.setMapStatus("Informe uma chave válida antes de salvar.", true);
+      this.setMapStatus("Informe uma chave valida antes de salvar.", true);
       return;
     }
     localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
@@ -201,7 +162,7 @@ class StreetPolylineMakerApp {
   async loadMap() {
     const apiKey = this.elements.apiKey.value.trim() || localStorage.getItem(STORAGE_KEYS.apiKey) || "";
     if (!apiKey) {
-      this.setMapStatus("A página precisa de uma API key do Google Maps para carregar o mapa.", true);
+      this.setMapStatus("A pagina precisa de uma API key do Google Maps para carregar o mapa.", true);
       return;
     }
 
@@ -216,12 +177,12 @@ class StreetPolylineMakerApp {
     }
 
     if (this.mapReady) {
-      this.setMapStatus("O mapa já está carregado.");
+      this.setMapStatus("O mapa ja esta carregado.");
       return;
     }
 
     this.initializeMap();
-    this.setMapStatus("Mapa carregado. Clique para começar a marcar a rodovia.");
+    this.setMapStatus("Mapa carregado. Clique para comecar a marcar a rodovia.");
     this.loadDraftFromStorage();
   }
 
@@ -246,7 +207,7 @@ class StreetPolylineMakerApp {
       script.defer = true;
       script.onerror = () => {
         delete window[callbackName];
-        reject(new Error("script não carregado"));
+        reject(new Error("script nao carregado"));
       };
       document.head.appendChild(script);
     });
@@ -257,7 +218,13 @@ class StreetPolylineMakerApp {
     this.map = new this.google.maps.Map(this.elements.map, {
       center,
       zoom: 8,
+      heading: 0,
+      tilt: 0,
       mapTypeId: "roadmap",
+      renderingType: this.google.maps.RenderingType.VECTOR,
+      headingInteractionEnabled: true,
+      tiltInteractionEnabled: true,
+      gestureHandling: "auto",
       fullscreenControl: false,
       streetViewControl: false,
       mapTypeControl: false,
@@ -271,18 +238,18 @@ class StreetPolylineMakerApp {
     this.previewLine = new this.google.maps.Polyline({
       path: [center, center],
       geodesic: true,
-      strokeColor: "#17130e",
-      strokeOpacity: 0.9,
-      strokeWeight: 4,
+      strokeColor: "#f59e0b",
+      strokeOpacity: 0.95,
+      strokeWeight: 3,
       map: this.map,
     });
 
     this.previewRadius = new this.google.maps.Circle({
-      strokeColor: "#17130e",
-      strokeOpacity: 0.7,
-      strokeWeight: 2,
-      fillColor: "#17130e",
-      fillOpacity: 0.14,
+      strokeColor: "#f59e0b",
+      strokeOpacity: 0.55,
+      strokeWeight: 1.5,
+      fillColor: "#f59e0b",
+      fillOpacity: 0.12,
       center,
       radius: this.getDefaultRadius(),
       map: this.map,
@@ -295,9 +262,9 @@ class StreetPolylineMakerApp {
     this.previewLine.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
     this.previewRadius.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
 
-    this.mapReady = true;
     this.historyInfoWindow = new this.google.maps.InfoWindow();
     this.attachRotationHandlers();
+    this.mapReady = true;
   }
 
   attachRotationHandlers() {
@@ -309,8 +276,14 @@ class StreetPolylineMakerApp {
 
       this.rotationDrag.active = true;
       this.rotationDrag.lastX = event.clientX;
-      this.map.setCenter(this.lastCoordinate);
+      this.rotationDrag.wasGestureHandling = "none";
       this.map.setOptions({ gestureHandling: "none" });
+      this.map.moveCamera({
+        center: this.lastCoordinate,
+        heading: this.map.getHeading() || 0,
+        tilt: this.map.getTilt() || 0,
+        zoom: this.map.getZoom(),
+      });
       event.preventDefault();
     });
 
@@ -321,9 +294,13 @@ class StreetPolylineMakerApp {
 
       const deltaX = event.clientX - this.rotationDrag.lastX;
       this.rotationDrag.lastX = event.clientX;
-      const heading = Number(this.map.getHeading() || 0);
-      this.map.setCenter(this.lastCoordinate);
-      this.map.setHeading(heading + (deltaX * 0.6));
+      const heading = Number(this.map.getHeading() || 0) + (deltaX * 0.65);
+      this.map.moveCamera({
+        center: this.lastCoordinate,
+        heading,
+        tilt: this.map.getTilt() || 0,
+        zoom: this.map.getZoom(),
+      });
     });
 
     window.addEventListener("mouseup", () => {
@@ -334,6 +311,90 @@ class StreetPolylineMakerApp {
       this.rotationDrag.active = false;
       this.map.setOptions({ gestureHandling: "auto" });
     });
+  }
+
+  startSidebarResize(event) {
+    if (window.innerWidth <= 820) {
+      return;
+    }
+
+    this.sidebarResize.active = true;
+    this.sidebarResize.startX = event.clientX;
+    this.sidebarResize.startWidth = this.elements.sidebar.getBoundingClientRect().width;
+    document.body.classList.add("is-resizing");
+    event.preventDefault();
+  }
+
+  handleSidebarResize(event) {
+    if (!this.sidebarResize.active) {
+      return;
+    }
+
+    const deltaX = event.clientX - this.sidebarResize.startX;
+    const width = Math.max(260, Math.min(560, this.sidebarResize.startWidth + deltaX));
+    this.elements.appShell.style.setProperty("--sidebar-width", `${width}px`);
+    if (this.mapReady) {
+      this.google.maps.event.trigger(this.map, "resize");
+    }
+  }
+
+  stopSidebarResize() {
+    if (!this.sidebarResize.active) {
+      return;
+    }
+
+    this.sidebarResize.active = false;
+    document.body.classList.remove("is-resizing");
+    if (this.mapReady && this.lastCoordinate) {
+      this.map.panTo(this.lastCoordinate);
+    }
+  }
+
+  toggleSidebar() {
+    const isCollapsed = this.elements.appShell.classList.toggle("sidebar-collapsed");
+    this.elements.toggleSidebar.title = isCollapsed ? "Expandir painel" : "Minimizar painel";
+    this.elements.toggleSidebar.setAttribute("aria-label", this.elements.toggleSidebar.title);
+
+    if (this.mapReady) {
+      window.setTimeout(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+        if (this.lastCoordinate) {
+          this.map.panTo(this.lastCoordinate);
+        }
+      }, 220);
+    }
+  }
+
+  openModal(modal) {
+    if (typeof modal.showModal === "function") {
+      modal.showModal();
+      return;
+    }
+    modal.setAttribute("open", "");
+  }
+
+  adjustRadiusByPreset(direction) {
+    const currentRadius = this.getDefaultRadius();
+    if (direction > 0) {
+      const nextValue = this.radiusPresets.find((value) => value > currentRadius);
+      if (nextValue) {
+        this.elements.defaultRadius.value = nextValue;
+        this.syncPreviewRadius();
+      }
+      return;
+    }
+
+    const previousValues = this.radiusPresets.filter((value) => value < currentRadius);
+    if (previousValues.length > 0) {
+      this.elements.defaultRadius.value = previousValues[previousValues.length - 1];
+      this.syncPreviewRadius();
+    }
+  }
+
+  adjustRadiusByStep(step) {
+    const nextRadius = Math.max(50, Math.min(500, this.getDefaultRadius() + step));
+    this.elements.defaultRadius.value = nextRadius;
+    this.syncPreviewRadius();
   }
 
   handleKmInputChange() {
@@ -350,8 +411,7 @@ class StreetPolylineMakerApp {
 
     const coordinate = this.fromLatLng(latLng);
     if (!this.kmManuallyChanged && this.lastCoordinate) {
-      const distanceMeters = this.distanceMeters(this.lastCoordinate, coordinate);
-      this.currentKm = this.roundKm(this.currentKm + (distanceMeters / 1000));
+      this.currentKm = this.roundKm(this.currentKm + (this.distanceMeters(this.lastCoordinate, coordinate) / 1000));
     } else if (this.anchorPoints.length === 0) {
       this.currentKm = this.roundKm(this.parseNumber(this.elements.startKm.value, 0));
     }
@@ -407,8 +467,8 @@ class StreetPolylineMakerApp {
       return;
     }
 
-    const color = this.colorForPoint(point.km);
     const position = { lat: point.latitude, lng: point.longitude };
+    const color = this.colorForPoint(point.km);
     const marker = new this.google.maps.Marker({
       position,
       map: this.map,
@@ -417,11 +477,11 @@ class StreetPolylineMakerApp {
     });
 
     const circle = new this.google.maps.Circle({
-      strokeColor: "#17130e",
-      strokeOpacity: 0.55,
+      strokeColor: "#111827",
+      strokeOpacity: 0.58,
       strokeWeight: 2,
       fillColor: color,
-      fillOpacity: 0.18,
+      fillOpacity: 0.14,
       center: position,
       radius: Number(point.raio) || this.getDefaultRadius(),
       map: this.map,
@@ -442,14 +502,12 @@ class StreetPolylineMakerApp {
 
   undoLastPoint() {
     if (this.anchorPoints.length === 0) {
-      this.setMapStatus("Não há pontos para desfazer.");
+      this.setMapStatus("Nao ha pontos para desfazer.");
       return;
     }
 
-    const marker = this.anchorMarkers.pop();
-    const circle = this.anchorCircles.pop();
-    marker?.setMap(null);
-    circle?.setMap(null);
+    this.anchorMarkers.pop()?.setMap(null);
+    this.anchorCircles.pop()?.setMap(null);
     this.anchorPoints.pop();
 
     const lastPoint = this.anchorPoints[this.anchorPoints.length - 1] || null;
@@ -479,7 +537,7 @@ class StreetPolylineMakerApp {
     this.elements.sqlOutput.value = this.buildSql(exportPoints);
     this.elements.jsonOutput.value = JSON.stringify(payload, null, 2);
     this.openModal(this.elements.exportModal);
-    this.setMapStatus(`Exportação gerada com ${exportPoints.length} pontos.`);
+    this.setMapStatus(`Exportacao gerada com ${exportPoints.length} pontos.`);
   }
 
   toggleExportPreview() {
@@ -489,10 +547,9 @@ class StreetPolylineMakerApp {
     }
 
     this.exportPreviewVisible = !this.exportPreviewVisible;
-    this.elements.toggleExportPreview.textContent = this.exportPreviewVisible
-      ? "Esconder pre-visualizacao da exportacao"
-      : "Exibir pre-visualizacao da exportacao";
-
+    this.elements.toggleExportPreview.querySelector(".btn-label").textContent = this.exportPreviewVisible
+      ? "Esconder pre-visualizacao"
+      : "Exibir pre-visualizacao";
     this.refreshExportPreview();
     this.setMapStatus(this.exportPreviewVisible ? "Pre-visualizacao da exportacao exibida." : "Pre-visualizacao da exportacao ocultada.");
   }
@@ -515,51 +572,9 @@ class StreetPolylineMakerApp {
     this.previewExportCircles = [];
   }
 
-  updateAnchorVisibility() {
-    const shouldAutoHide = this.elements.autoHideAnchors.checked;
-    const total = this.anchorMarkers.length;
-    const keepEvery = this.getAnchorVisibilityStep(total);
-    const keepTail = total >= 1000 ? 12 : total >= 500 ? 18 : total >= 100 ? 24 : 30;
-
-    this.anchorMarkers.forEach((marker, index) => {
-      marker.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
-    });
-
-    this.anchorCircles.forEach((circle, index) => {
-      circle.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
-    });
-  }
-
-  getAnchorVisibilityStep(total) {
-    if (total >= 1000) {
-      return 10;
-    }
-    if (total >= 500) {
-      return 7;
-    }
-    if (total >= 250) {
-      return 5;
-    }
-    if (total >= 100) {
-      return 4;
-    }
-    if (total >= 25) {
-      return 2;
-    }
-    return 1;
-  }
-
-  shouldKeepAnchorVisible(index, total, keepEvery, keepTail) {
-    if (index === 0 || index >= total - keepTail) {
-      return true;
-    }
-
-    return index % keepEvery === 0;
-  }
-
   renderExportPreviewPoint(point, index) {
     const isKilometerPoint = index % 10 === 0;
-    const color = isKilometerPoint ? "#f08c00" : "#1971c2";
+    const color = isKilometerPoint ? "#f59e0b" : "#38bdf8";
     const position = { lat: Number(point.latitude), lng: Number(point.longitude) };
     const marker = new this.google.maps.Marker({
       position,
@@ -570,8 +585,8 @@ class StreetPolylineMakerApp {
       icon: {
         path: this.google.maps.SymbolPath.CIRCLE,
         fillColor: color,
-        fillOpacity: 0.95,
-        strokeColor: "#ffffff",
+        fillOpacity: 0.96,
+        strokeColor: "#020617",
         strokeWeight: isKilometerPoint ? 2 : 1.5,
         scale: isKilometerPoint ? 7 : 5,
       },
@@ -579,10 +594,10 @@ class StreetPolylineMakerApp {
 
     const circle = new this.google.maps.Circle({
       strokeColor: color,
-      strokeOpacity: isKilometerPoint ? 0.65 : 0.35,
+      strokeOpacity: isKilometerPoint ? 0.62 : 0.28,
       strokeWeight: isKilometerPoint ? 2 : 1,
       fillColor: color,
-      fillOpacity: isKilometerPoint ? 0.1 : 0.04,
+      fillOpacity: isKilometerPoint ? 0.1 : 0.03,
       center: position,
       radius: Number(point.raio) || this.getDefaultRadius(),
       map: this.map,
@@ -591,6 +606,36 @@ class StreetPolylineMakerApp {
 
     this.previewExportMarkers.push(marker);
     this.previewExportCircles.push(circle);
+  }
+
+  updateAnchorVisibility() {
+    const shouldAutoHide = this.elements.autoHideAnchors.checked;
+    const total = this.anchorMarkers.length;
+    const keepEvery = this.getAnchorVisibilityStep(total);
+    const keepTail = total >= 1000 ? 12 : total >= 500 ? 18 : total >= 100 ? 24 : 30;
+
+    this.anchorMarkers.forEach((marker, index) => {
+      marker.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
+    });
+    this.anchorCircles.forEach((circle, index) => {
+      circle.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
+    });
+  }
+
+  getAnchorVisibilityStep(total) {
+    if (total >= 1000) return 10;
+    if (total >= 500) return 7;
+    if (total >= 250) return 5;
+    if (total >= 100) return 4;
+    if (total >= 25) return 2;
+    return 1;
+  }
+
+  shouldKeepAnchorVisible(index, total, keepEvery, keepTail) {
+    if (index === 0 || index >= total - keepTail) {
+      return true;
+    }
+    return index % keepEvery === 0;
   }
 
   generateExportPoints(anchorPoints, stepKm) {
@@ -640,7 +685,6 @@ class StreetPolylineMakerApp {
       const start = anchorPoints[index];
       const end = anchorPoints[index + 1];
       const distanceKm = this.distanceMeters(start, end) / 1000;
-
       if (distanceKm <= 0) {
         continue;
       }
@@ -666,10 +710,8 @@ class StreetPolylineMakerApp {
 
     const distanceInsideSegment = targetDistanceKm - segment.startDistanceKm;
     const fraction = distanceInsideSegment / segment.distanceKm;
-    const interpolated = this.interpolatePoint(segment.start, segment.end, fraction);
-
     return {
-      ...interpolated,
+      ...this.interpolatePoint(segment.start, segment.end, fraction),
       source: segment.start,
     };
   }
@@ -714,15 +756,15 @@ class StreetPolylineMakerApp {
 
   async copyOutput(element) {
     if (!element.value.trim()) {
-      this.setMapStatus("Não há conteúdo para copiar.");
+      this.setMapStatus("Nao ha conteudo para copiar.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(element.value);
-      this.setMapStatus("Conteúdo copiado para a área de transferência.");
+      this.setMapStatus("Conteudo copiado para a area de transferencia.");
     } catch (_error) {
-      this.setMapStatus("Falha ao copiar. O navegador pode bloquear a área de transferência.", true);
+      this.setMapStatus("Falha ao copiar. O navegador pode bloquear a area de transferencia.", true);
     }
   }
 
@@ -734,9 +776,9 @@ class StreetPolylineMakerApp {
 
     file.text().then((text) => {
       this.elements.importText.value = text;
-      this.setMapStatus(`Arquivo ${file.name} carregado para importação.`);
+      this.setMapStatus(`Arquivo ${file.name} carregado para importacao.`);
     }).catch(() => {
-      this.setMapStatus("Não foi possível ler o arquivo selecionado.", true);
+      this.setMapStatus("Nao foi possivel ler o arquivo selecionado.", true);
     });
   }
 
@@ -751,13 +793,13 @@ class StreetPolylineMakerApp {
     try {
       parsed = JSON.parse(raw);
     } catch (_error) {
-      this.setMapStatus("JSON inválido.", true);
+      this.setMapStatus("JSON invalido.", true);
       return;
     }
 
     const anchors = this.extractAnchorList(parsed);
     if (anchors.length === 0) {
-      this.setMapStatus("O JSON não contém pontos reconhecíveis.", true);
+      this.setMapStatus("O JSON nao contem pontos reconheciveis.", true);
       return;
     }
 
@@ -767,13 +809,13 @@ class StreetPolylineMakerApp {
       this.updateSummary();
       this.elements.importModal.close();
       this.refreshExportPreview();
-      this.setMapStatus(`${anchors.length} pontos importados para continuar a edição.`);
+      this.setMapStatus(`${anchors.length} pontos importados para continuar a edicao.`);
       return;
     }
 
     this.renderImportedPoints(anchors);
     this.elements.importModal.close();
-    this.setMapStatus(`${anchors.length} pontos importados para visualização.`);
+    this.setMapStatus(`${anchors.length} pontos importados para visualizacao.`);
   }
 
   extractAnchorList(parsed) {
@@ -818,19 +860,19 @@ class StreetPolylineMakerApp {
         title: this.formatHistoryTitle(normalized),
         icon: {
           path: this.google.maps.SymbolPath.CIRCLE,
-          fillColor: "#1f7a8c",
+          fillColor: "#38bdf8",
           fillOpacity: 0.95,
-          strokeColor: "#ffffff",
+          strokeColor: "#e2e8f0",
           strokeWeight: 1.5,
           scale: 5,
         },
       });
       const circle = new this.google.maps.Circle({
-        strokeColor: "#1f7a8c",
-        strokeOpacity: 0.6,
+        strokeColor: "#38bdf8",
+        strokeOpacity: 0.52,
         strokeWeight: 1,
-        fillColor: "#1f7a8c",
-        fillOpacity: 0.12,
+        fillColor: "#38bdf8",
+        fillOpacity: 0.08,
         center: position,
         radius: normalized.raio,
         map: this.map,
@@ -892,13 +934,14 @@ class StreetPolylineMakerApp {
         this.map.panTo(this.lastCoordinate);
       }
     }
+
     this.refreshExportPreview();
   }
 
   loadDraftFromStorage() {
     const rawDraft = localStorage.getItem(STORAGE_KEYS.draft);
     if (!rawDraft) {
-      this.setMapStatus("Nenhum histórico local salvo foi encontrado.");
+      this.setMapStatus("Nenhum historico local salvo foi encontrado.");
       return;
     }
 
@@ -906,7 +949,7 @@ class StreetPolylineMakerApp {
     try {
       draft = JSON.parse(rawDraft);
     } catch (_error) {
-      this.setMapStatus("O histórico salvo está inválido e foi ignorado.", true);
+      this.setMapStatus("O historico salvo esta invalido e foi ignorado.", true);
       return;
     }
 
@@ -931,7 +974,7 @@ class StreetPolylineMakerApp {
       this.anchorPoints = anchors;
     }
     this.updateSummary();
-    this.setMapStatus(`${anchors.length} pontos restaurados do histórico local.`);
+    this.setMapStatus(`${anchors.length} pontos restaurados do historico local.`);
     this.refreshExportPreview();
   }
 
@@ -949,111 +992,6 @@ class StreetPolylineMakerApp {
     };
 
     localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(payload));
-  }
-
-  toggleImportedVisibility() {
-    if (this.importedCircles.length === 0) {
-      this.setMapStatus("Nenhum ponto importado está visível.");
-      return;
-    }
-
-    this.importedVisible = !this.importedVisible;
-    this.importedCircles.forEach((circle) => circle.setVisible(this.importedVisible));
-    this.setMapStatus(this.importedVisible ? "Importados exibidos." : "Importados ocultos.");
-  }
-
-  clearAll() {
-    this.anchorMarkers.forEach((marker) => marker.setMap(null));
-    this.anchorCircles.forEach((circle) => circle.setMap(null));
-    this.importedCircles.forEach((circle) => circle.setMap(null));
-    this.clearExportPreview();
-
-    this.anchorMarkers = [];
-    this.anchorCircles = [];
-    this.importedCircles = [];
-    this.anchorPoints = [];
-    this.lastCoordinate = null;
-    this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
-    this.elements.sqlOutput.value = "";
-    this.elements.jsonOutput.value = "";
-    localStorage.removeItem(STORAGE_KEYS.draft);
-    this.updateSummary();
-    this.setMapStatus("Mapa e histórico local limpos.");
-  }
-
-  syncPreviewRadius() {
-    if (this.previewRadius) {
-      this.previewRadius.setRadius(this.getDefaultRadius());
-    }
-    this.refreshExportPreview();
-  }
-
-  renderImportedPoints(points) {
-    if (!this.mapReady) {
-      this.setMapStatus("Carregue o mapa antes de importar.", true);
-      return;
-    }
-
-    this.importedMarkers.forEach((marker) => marker.setMap(null));
-    this.importedCircles.forEach((circle) => circle.setMap(null));
-    this.closeHistoryTooltip();
-    this.importedMarkers = [];
-    this.importedCircles = [];
-
-    points.forEach((point) => {
-      const normalized = {
-        longitude: Number(point.longitude),
-        latitude: Number(point.latitude),
-        km: this.parseNumber(point.km, 0).toFixed(3),
-        rodovia: point.rodovia || "",
-        raio: Number(point.raio) || this.getDefaultRadius(),
-        sentido: point.sentido || "",
-        nome: point.nome || "",
-      };
-      const position = { lat: normalized.latitude, lng: normalized.longitude };
-      const marker = new this.google.maps.Marker({
-        position,
-        map: this.map,
-        title: this.formatHistoryTitle(normalized),
-        icon: {
-          path: this.google.maps.SymbolPath.CIRCLE,
-          fillColor: "#1f7a8c",
-          fillOpacity: 0.95,
-          strokeColor: "#ffffff",
-          strokeWeight: 1.5,
-          scale: 5,
-        },
-      });
-      const circle = new this.google.maps.Circle({
-        strokeColor: "#1f7a8c",
-        strokeOpacity: 0.6,
-        strokeWeight: 1,
-        fillColor: "#1f7a8c",
-        fillOpacity: 0.12,
-        center: position,
-        radius: normalized.raio,
-        map: this.map,
-      });
-
-      [marker, circle].forEach((overlay) => {
-        overlay.addListener("mouseover", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
-        overlay.addListener("mousemove", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
-        overlay.addListener("mouseout", () => this.closeHistoryTooltip());
-        overlay.addListener("click", (event) => {
-          if (event.domEvent?.ctrlKey) {
-            this.createAnchorFromHistory(normalized);
-          }
-        });
-      });
-
-      this.importedMarkers.push(marker);
-      this.importedCircles.push(circle);
-    });
-
-    this.importedVisible = true;
-    if (points[0]) {
-      this.map.panTo({ lat: Number(points[0].latitude), lng: Number(points[0].longitude) });
-    }
   }
 
   toggleImportedVisibility() {
@@ -1091,6 +1029,13 @@ class StreetPolylineMakerApp {
     localStorage.removeItem(STORAGE_KEYS.draft);
     this.updateSummary();
     this.setMapStatus("Mapa e historico local limpos.");
+  }
+
+  syncPreviewRadius() {
+    if (this.previewRadius) {
+      this.previewRadius.setRadius(this.getDefaultRadius());
+    }
+    this.refreshExportPreview();
   }
 
   showHistoryTooltip(point, latLng) {
@@ -1166,7 +1111,7 @@ class StreetPolylineMakerApp {
 
   setMapStatus(message, isError = false) {
     this.elements.mapStatus.textContent = message;
-    this.elements.mapStatus.style.color = isError ? "#a1372f" : "";
+    this.elements.mapStatus.classList.toggle("error-text", isError);
   }
 
   parseNumber(value, fallback) {
@@ -1200,8 +1145,7 @@ class StreetPolylineMakerApp {
     const dLng = toRadians(bLng - aLng);
     const lat1 = toRadians(aLat);
     const lat2 = toRadians(bLat);
-    const a = Math.sin(dLat / 2) ** 2
-      + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return earthRadiusKm * c * 1000;
   }
@@ -1239,14 +1183,14 @@ class StreetPolylineMakerApp {
       path: "M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z M -2,-30 a 2,2 0 1,1 4,0 2,2 0 1,1 -4,0",
       fillColor: color,
       fillOpacity: 1,
-      strokeColor: "#17130e",
+      strokeColor: "#020617",
       strokeWeight: 2,
       scale: 1,
     };
   }
 
   colorForPoint(km) {
-    return Number(km).toFixed(3).endsWith(".000") ? "#f4b942" : "#1f7a8c";
+    return Number(km).toFixed(3).endsWith(".000") ? "#f59e0b" : "#38bdf8";
   }
 }
 
