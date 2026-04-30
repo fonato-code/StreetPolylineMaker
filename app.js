@@ -9,6 +9,7 @@ class StreetPolylineMakerApp {
     this.google = null;
     this.anchorMarkers = [];
     this.anchorCircles = [];
+    this.importedMarkers = [];
     this.importedCircles = [];
     this.previewExportMarkers = [];
     this.previewExportCircles = [];
@@ -22,6 +23,8 @@ class StreetPolylineMakerApp {
     this.kmManuallyChanged = false;
     this.mapReady = false;
     this.radiusPresets = [50, 100, 150, 250, 500];
+    this.rotationDrag = { active: false, lastX: 0 };
+    this.historyInfoWindow = null;
 
     this.elements = {
       apiKey: document.getElementById("apiKey"),
@@ -46,6 +49,7 @@ class StreetPolylineMakerApp {
       loadHistory: document.getElementById("loadHistory"),
       toggleImported: document.getElementById("toggleImported"),
       clearAll: document.getElementById("clearAll"),
+      autoHideAnchors: document.getElementById("autoHideAnchors"),
       importFile: document.getElementById("importFile"),
       importText: document.getElementById("importText"),
       importJson: document.getElementById("importJson"),
@@ -77,6 +81,7 @@ class StreetPolylineMakerApp {
     this.elements.loadHistory.addEventListener("click", () => this.loadDraftFromStorage());
     this.elements.toggleImported.addEventListener("click", () => this.toggleImportedVisibility());
     this.elements.clearAll.addEventListener("click", () => this.clearAll());
+    this.elements.autoHideAnchors.addEventListener("change", () => this.updateAnchorVisibility());
     this.elements.importJson.addEventListener("click", () => this.importFromInputs(false));
     this.elements.useJsonAsHistory.addEventListener("click", () => this.importFromInputs(true));
     this.elements.importFile.addEventListener("change", (event) => this.loadImportFile(event));
@@ -291,6 +296,44 @@ class StreetPolylineMakerApp {
     this.previewRadius.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
 
     this.mapReady = true;
+    this.historyInfoWindow = new this.google.maps.InfoWindow();
+    this.attachRotationHandlers();
+  }
+
+  attachRotationHandlers() {
+    const mapDiv = this.map.getDiv();
+    mapDiv.addEventListener("mousedown", (event) => {
+      if (!event.shiftKey || !this.lastCoordinate) {
+        return;
+      }
+
+      this.rotationDrag.active = true;
+      this.rotationDrag.lastX = event.clientX;
+      this.map.setCenter(this.lastCoordinate);
+      this.map.setOptions({ gestureHandling: "none" });
+      event.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (event) => {
+      if (!this.rotationDrag.active || !this.lastCoordinate) {
+        return;
+      }
+
+      const deltaX = event.clientX - this.rotationDrag.lastX;
+      this.rotationDrag.lastX = event.clientX;
+      const heading = Number(this.map.getHeading() || 0);
+      this.map.setCenter(this.lastCoordinate);
+      this.map.setHeading(heading + (deltaX * 0.6));
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (!this.rotationDrag.active) {
+        return;
+      }
+
+      this.rotationDrag.active = false;
+      this.map.setOptions({ gestureHandling: "auto" });
+    });
   }
 
   handleKmInputChange() {
@@ -390,10 +433,10 @@ class StreetPolylineMakerApp {
 
     this.anchorMarkers.push(marker);
     this.anchorCircles.push(circle);
+    this.updateAnchorVisibility();
 
     if (this.anchorPoints.length === 1) {
       this.map.panTo(position);
-      this.map.setZoom(12);
     }
   }
 
@@ -420,6 +463,7 @@ class StreetPolylineMakerApp {
     }
 
     this.persistDraft();
+    this.updateAnchorVisibility();
     this.updateSummary();
     this.refreshExportPreview();
   }
@@ -469,6 +513,48 @@ class StreetPolylineMakerApp {
     this.previewExportCircles.forEach((circle) => circle.setMap(null));
     this.previewExportMarkers = [];
     this.previewExportCircles = [];
+  }
+
+  updateAnchorVisibility() {
+    const shouldAutoHide = this.elements.autoHideAnchors.checked;
+    const total = this.anchorMarkers.length;
+    const keepEvery = this.getAnchorVisibilityStep(total);
+    const keepTail = total >= 1000 ? 12 : total >= 500 ? 18 : total >= 100 ? 24 : 30;
+
+    this.anchorMarkers.forEach((marker, index) => {
+      marker.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
+    });
+
+    this.anchorCircles.forEach((circle, index) => {
+      circle.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
+    });
+  }
+
+  getAnchorVisibilityStep(total) {
+    if (total >= 1000) {
+      return 10;
+    }
+    if (total >= 500) {
+      return 7;
+    }
+    if (total >= 250) {
+      return 5;
+    }
+    if (total >= 100) {
+      return 4;
+    }
+    if (total >= 25) {
+      return 2;
+    }
+    return 1;
+  }
+
+  shouldKeepAnchorVisible(index, total, keepEvery, keepTail) {
+    if (index === 0 || index >= total - keepTail) {
+      return true;
+    }
+
+    return index % keepEvery === 0;
   }
 
   renderExportPreviewPoint(point, index) {
@@ -709,20 +795,59 @@ class StreetPolylineMakerApp {
       return;
     }
 
+    this.importedMarkers.forEach((marker) => marker.setMap(null));
     this.importedCircles.forEach((circle) => circle.setMap(null));
+    this.closeHistoryTooltip();
+    this.importedMarkers = [];
     this.importedCircles = [];
 
     points.forEach((point) => {
+      const normalized = {
+        longitude: Number(point.longitude),
+        latitude: Number(point.latitude),
+        km: this.parseNumber(point.km, 0).toFixed(3),
+        rodovia: point.rodovia || "",
+        raio: Number(point.raio) || this.getDefaultRadius(),
+        sentido: point.sentido || "",
+        nome: point.nome || "",
+      };
+      const position = { lat: normalized.latitude, lng: normalized.longitude };
+      const marker = new this.google.maps.Marker({
+        position,
+        map: this.map,
+        title: this.formatHistoryTitle(normalized),
+        icon: {
+          path: this.google.maps.SymbolPath.CIRCLE,
+          fillColor: "#1f7a8c",
+          fillOpacity: 0.95,
+          strokeColor: "#ffffff",
+          strokeWeight: 1.5,
+          scale: 5,
+        },
+      });
       const circle = new this.google.maps.Circle({
         strokeColor: "#1f7a8c",
         strokeOpacity: 0.6,
         strokeWeight: 1,
         fillColor: "#1f7a8c",
         fillOpacity: 0.12,
-        center: { lat: Number(point.latitude), lng: Number(point.longitude) },
-        radius: Number(point.raio) || this.getDefaultRadius(),
+        center: position,
+        radius: normalized.raio,
         map: this.map,
       });
+
+      [marker, circle].forEach((overlay) => {
+        overlay.addListener("mouseover", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
+        overlay.addListener("mousemove", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
+        overlay.addListener("mouseout", () => this.closeHistoryTooltip());
+        overlay.addListener("click", (event) => {
+          if (event.domEvent?.ctrlKey) {
+            this.createAnchorFromHistory(normalized);
+          }
+        });
+      });
+
+      this.importedMarkers.push(marker);
       this.importedCircles.push(circle);
     });
 
@@ -861,6 +986,169 @@ class StreetPolylineMakerApp {
       this.previewRadius.setRadius(this.getDefaultRadius());
     }
     this.refreshExportPreview();
+  }
+
+  renderImportedPoints(points) {
+    if (!this.mapReady) {
+      this.setMapStatus("Carregue o mapa antes de importar.", true);
+      return;
+    }
+
+    this.importedMarkers.forEach((marker) => marker.setMap(null));
+    this.importedCircles.forEach((circle) => circle.setMap(null));
+    this.closeHistoryTooltip();
+    this.importedMarkers = [];
+    this.importedCircles = [];
+
+    points.forEach((point) => {
+      const normalized = {
+        longitude: Number(point.longitude),
+        latitude: Number(point.latitude),
+        km: this.parseNumber(point.km, 0).toFixed(3),
+        rodovia: point.rodovia || "",
+        raio: Number(point.raio) || this.getDefaultRadius(),
+        sentido: point.sentido || "",
+        nome: point.nome || "",
+      };
+      const position = { lat: normalized.latitude, lng: normalized.longitude };
+      const marker = new this.google.maps.Marker({
+        position,
+        map: this.map,
+        title: this.formatHistoryTitle(normalized),
+        icon: {
+          path: this.google.maps.SymbolPath.CIRCLE,
+          fillColor: "#1f7a8c",
+          fillOpacity: 0.95,
+          strokeColor: "#ffffff",
+          strokeWeight: 1.5,
+          scale: 5,
+        },
+      });
+      const circle = new this.google.maps.Circle({
+        strokeColor: "#1f7a8c",
+        strokeOpacity: 0.6,
+        strokeWeight: 1,
+        fillColor: "#1f7a8c",
+        fillOpacity: 0.12,
+        center: position,
+        radius: normalized.raio,
+        map: this.map,
+      });
+
+      [marker, circle].forEach((overlay) => {
+        overlay.addListener("mouseover", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
+        overlay.addListener("mousemove", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
+        overlay.addListener("mouseout", () => this.closeHistoryTooltip());
+        overlay.addListener("click", (event) => {
+          if (event.domEvent?.ctrlKey) {
+            this.createAnchorFromHistory(normalized);
+          }
+        });
+      });
+
+      this.importedMarkers.push(marker);
+      this.importedCircles.push(circle);
+    });
+
+    this.importedVisible = true;
+    if (points[0]) {
+      this.map.panTo({ lat: Number(points[0].latitude), lng: Number(points[0].longitude) });
+    }
+  }
+
+  toggleImportedVisibility() {
+    if (this.importedCircles.length === 0 && this.importedMarkers.length === 0) {
+      this.setMapStatus("Nenhum ponto importado esta visivel.");
+      return;
+    }
+
+    this.importedVisible = !this.importedVisible;
+    this.importedMarkers.forEach((marker) => marker.setVisible(this.importedVisible));
+    this.importedCircles.forEach((circle) => circle.setVisible(this.importedVisible));
+    if (!this.importedVisible) {
+      this.closeHistoryTooltip();
+    }
+    this.setMapStatus(this.importedVisible ? "Importados exibidos." : "Importados ocultos.");
+  }
+
+  clearAll() {
+    this.anchorMarkers.forEach((marker) => marker.setMap(null));
+    this.anchorCircles.forEach((circle) => circle.setMap(null));
+    this.importedMarkers.forEach((marker) => marker.setMap(null));
+    this.importedCircles.forEach((circle) => circle.setMap(null));
+    this.clearExportPreview();
+    this.closeHistoryTooltip();
+
+    this.anchorMarkers = [];
+    this.anchorCircles = [];
+    this.importedMarkers = [];
+    this.importedCircles = [];
+    this.anchorPoints = [];
+    this.lastCoordinate = null;
+    this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+    this.elements.sqlOutput.value = "";
+    this.elements.jsonOutput.value = "";
+    localStorage.removeItem(STORAGE_KEYS.draft);
+    this.updateSummary();
+    this.setMapStatus("Mapa e historico local limpos.");
+  }
+
+  showHistoryTooltip(point, latLng) {
+    if (!this.historyInfoWindow) {
+      return;
+    }
+
+    const position = typeof latLng.lat === "function" ? latLng : { lat: latLng.lat, lng: latLng.lng };
+    this.historyInfoWindow.setPosition(position);
+    this.historyInfoWindow.setContent(`
+      <div style="min-width:220px;font-size:12px;line-height:1.45">
+        <strong>${point.rodovia || "Rodovia sem nome"}</strong><br>
+        KM: ${point.km}<br>
+        Sentido: ${point.sentido || "-"}<br>
+        Raio: ${point.raio} m<br>
+        Nome: ${point.nome || "-"}<br>
+        Latitude: ${Number(point.latitude).toFixed(6)}<br>
+        Longitude: ${Number(point.longitude).toFixed(6)}
+      </div>
+    `);
+    this.historyInfoWindow.open({ map: this.map });
+  }
+
+  closeHistoryTooltip() {
+    this.historyInfoWindow?.close();
+  }
+
+  formatHistoryTitle(point) {
+    return `${point.rodovia || "Rodovia"} ${point.sentido || ""} km ${point.km}`.trim();
+  }
+
+  createAnchorFromHistory(point) {
+    const normalized = {
+      id: this.anchorPoints.length + 1,
+      longitude: Number(point.longitude),
+      latitude: Number(point.latitude),
+      km: this.parseNumber(point.km, 0).toFixed(3),
+      rodovia: point.rodovia || this.elements.roadName.value.trim(),
+      raio: Number(point.raio) || this.getDefaultRadius(),
+      sentido: point.sentido || this.elements.direction.value,
+      nome: point.nome || this.elements.displayName.value.trim(),
+    };
+
+    this.elements.roadName.value = normalized.rodovia;
+    this.elements.direction.value = normalized.sentido;
+    this.elements.displayName.value = normalized.nome;
+    this.elements.defaultRadius.value = normalized.raio;
+    this.elements.startKm.value = normalized.km;
+
+    this.anchorPoints.push(normalized);
+    this.renderAnchor(normalized);
+    this.lastCoordinate = { lat: normalized.latitude, lng: normalized.longitude };
+    this.currentKm = Number(normalized.km);
+    this.kmManuallyChanged = false;
+    this.persistDraft();
+    this.updateSummary();
+    this.refreshExportPreview();
+    this.setMapStatus(`Ponto do historico convertido para edicao no km ${normalized.km}.`);
   }
 
   updateSummary() {

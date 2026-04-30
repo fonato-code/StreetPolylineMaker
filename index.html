@@ -36,6 +36,10 @@
 
         <section class="panel">
           <h2>Operacoes</h2>
+          <label class="toggle-row">
+            <input id="autoHideAnchors" type="checkbox" checked>
+            <span>Ocultar automaticamente pontos antigos</span>
+          </label>
           <div class="stack">
             <button id="exportData" class="btn btn-primary" type="button">Exportar SQL + JSON</button>
             <button id="toggleExportPreview" class="btn btn-secondary" type="button">Exibir pre-visualizacao da exportacao</button>
@@ -50,10 +54,12 @@
           <h2>Atalhos</h2>
           <div class="shortcut-list">
             <p><kbd>Ctrl</kbd> + <kbd>Z</kbd><span>Desfaz ultimo ponto</span></p>
+            <p><kbd>Shift</kbd> + <kbd>Arrastar</kbd><span>Gira o mapa em volta do ultimo ponto</span></p>
             <p><kbd>Alt</kbd> + <kbd>1</kbd><span>Aumenta o raio para o proximo valor padrao</span></p>
             <p><kbd>Alt</kbd> + <kbd>2</kbd><span>Reduz o raio para o valor padrao anterior</span></p>
             <p><kbd>Alt</kbd> + <kbd>Q</kbd><span>Soma 50 m ao raio</span></p>
             <p><kbd>Alt</kbd> + <kbd>W</kbd><span>Subtrai 50 m do raio</span></p>
+            <p><kbd>Ctrl</kbd> + <kbd>Clique</kbd><span>Cria um ponto a partir de um marcador do historico</span></p>
           </div>
         </section>
       </div>
