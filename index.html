@@ -81,6 +81,7 @@
         <label class="compact-field compact-field-small">
           <span>Sentido</span>
           <select id="direction">
+            <option value="">Todos</option>
             <option value="N">Norte</option>
             <option value="S">Sul</option>
             <option value="L">Leste</option>
@@ -197,18 +198,18 @@
   <dialog id="routesModal" class="modal modal-wide">
     <div class="modal-header">
       <h2>Rodovias e trechos</h2>
-      <button id="closeRoutesModal" class="icon-btn" type="button" title="Fechar" aria-label="Fechar">
-        <i class="fas fa-times" aria-hidden="true"></i>
-      </button>
-    </div>
-    <div class="routes-modal-body">
-      <p class="hint routes-modal-hint">Edite Rodovia, Sentido e Nome na tabela. Use <strong>Editar trecho</strong> para marcar pontos no mapa naquele trecho.</p>
-      <div class="routes-toolbar">
+      <div class="modal-header-trailing">
         <button id="addRouteBtn" class="btn btn-secondary" type="button">
           <i class="fas fa-plus btn-icon" aria-hidden="true"></i>
           <span class="btn-label">Nova rodovia</span>
         </button>
+        <button id="closeRoutesModal" class="icon-btn" type="button" title="Fechar" aria-label="Fechar">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
       </div>
+    </div>
+    <div class="routes-modal-body">
+      <p class="hint routes-modal-hint">Edite Rodovia, Sentido e Nome na tabela. Use o ícone de <strong>lápis</strong> para marcar pontos no mapa naquele trecho.</p>
       <div class="routes-table-wrap">
         <table class="routes-table" aria-label="Lista de rodovias">
           <thead>

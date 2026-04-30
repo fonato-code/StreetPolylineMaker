@@ -565,6 +565,13 @@ textarea {
   z-index: 1;
 }
 
+.modal-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .modal > .field,
 .modal > .row {
   margin: 16px;
@@ -602,12 +609,6 @@ textarea {
 .routes-modal-hint {
   margin: 0;
   line-height: 1.4;
-}
-
-.routes-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 
 .routes-table-wrap {
@@ -656,17 +657,16 @@ textarea {
 }
 
 .routes-table .routes-col-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
 }
 
-.routes-table .routes-col-actions .btn {
-  min-height: 34px;
-  padding: 6px 10px;
-  margin-right: 6px;
-}
-
-.routes-table .routes-col-actions .btn:last-child {
-  margin-right: 0;
+.routes-table .routes-col-actions .routes-action-icon {
+  width: 34px;
+  height: 34px;
+  font-size: 0.88rem;
 }
 
 .routes-col-points {

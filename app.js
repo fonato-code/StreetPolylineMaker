@@ -236,7 +236,7 @@ class StreetPolylineMakerApp {
 
   applyRouteToForm(route) {
     this.elements.roadName.value = route.roadName || "";
-    this.elements.direction.value = route.direction || "N";
+    this.elements.direction.value = route.direction === "" ? "" : (route.direction || "N");
     this.elements.displayName.value = route.displayName || "";
     this.elements.defaultRadius.value = route.defaultRadius || 500;
     this.elements.startKm.value = Number(route.startKm ?? 0).toFixed(3);
@@ -281,7 +281,9 @@ class StreetPolylineMakerApp {
     const r = this.createEmptyRoute();
     if (draft.meta) {
       r.roadName = draft.meta.roadName || "";
-      r.direction = draft.meta.direction || "N";
+      r.direction = draft.meta.direction !== undefined && draft.meta.direction !== null
+        ? draft.meta.direction
+        : "N";
       r.displayName = draft.meta.displayName || "";
       r.defaultRadius = this.parseNumber(draft.meta.defaultRadius, 500);
       r.startKm = this.parseNumber(draft.meta.startKm, 0);
@@ -392,13 +394,13 @@ class StreetPolylineMakerApp {
 
       const tdDir = document.createElement("td");
       const sel = document.createElement("select");
-      [["N", "Norte"], ["S", "Sul"], ["L", "Leste"], ["O", "Oeste"]].forEach(([val, label]) => {
+      [["", "Todos"], ["N", "Norte"], ["S", "Sul"], ["L", "Leste"], ["O", "Oeste"]].forEach(([val, label]) => {
         const opt = document.createElement("option");
         opt.value = val;
         opt.textContent = label;
         sel.appendChild(opt);
       });
-      sel.value = route.direction || "N";
+      sel.value = route.direction === "" ? "" : (route.direction || "N");
       sel.addEventListener("change", () => {
         route.direction = sel.value;
         if (route.id === this.activeRouteId) {
@@ -431,8 +433,10 @@ class StreetPolylineMakerApp {
 
       const btnEdit = document.createElement("button");
       btnEdit.type = "button";
-      btnEdit.className = "btn btn-primary";
-      btnEdit.textContent = "Editar trecho";
+      btnEdit.className = "nav-icon-btn nav-icon-btn--on routes-action-icon";
+      btnEdit.title = "Editar trecho";
+      btnEdit.setAttribute("aria-label", "Editar trecho");
+      btnEdit.innerHTML = '<i class="fas fa-pen" aria-hidden="true"></i>';
       btnEdit.addEventListener("click", () => {
         this.switchActiveRoute(route.id);
         this.elements.routesModal.close();
@@ -441,8 +445,10 @@ class StreetPolylineMakerApp {
 
       const btnDel = document.createElement("button");
       btnDel.type = "button";
-      btnDel.className = "btn btn-danger";
-      btnDel.textContent = "Excluir";
+      btnDel.className = "nav-icon-btn nav-icon-btn--danger routes-action-icon";
+      btnDel.title = "Excluir trecho";
+      btnDel.setAttribute("aria-label", "Excluir trecho");
+      btnDel.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i>';
       btnDel.disabled = this.routes.length <= 1;
       btnDel.addEventListener("click", () => {
         if (this.routes.length <= 1) {
@@ -1162,7 +1168,8 @@ class StreetPolylineMakerApp {
         flatPoints.push(row);
         return row;
       });
-      const label = `${route.roadName || "sem nome"} (${route.direction})`;
+      const dirLabel = route.direction === "" ? "Todos" : route.direction;
+      const label = `${route.roadName || "sem nome"} (${dirLabel})`;
       sqlChunks.push(`/* Trecho: ${label} */\n${this.buildSql(renumbered)}`);
     });
 
