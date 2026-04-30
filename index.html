@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StreetPolylineMaker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <p class="eyebrow">Geo tooling</p>
+        <h1>StreetPolylineMaker</h1>
+        <p class="brand-copy">Mapeie uma rodovia por cliques no Google Maps, desfaça com <kbd>Ctrl</kbd>+<kbd>Z</kbd> e exporte SQL e JSON.</p>
+      </div>
+
+      <section class="panel">
+        <h2>Google Maps</h2>
+        <label class="field">
+          <span>API key</span>
+          <input id="apiKey" type="password" placeholder="Cole sua chave da API do Google Maps">
+        </label>
+        <div class="row">
+          <button id="saveApiKey" class="btn btn-secondary" type="button">Salvar chave</button>
+          <button id="loadMap" class="btn btn-primary" type="button">Carregar mapa</button>
+        </div>
+        <p id="mapStatus" class="hint">Informe a chave para carregar o mapa.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Configuração</h2>
+        <div class="grid">
+          <label class="field">
+            <span>Rodovia</span>
+            <input id="roadName" type="text" placeholder="Ex.: BR-116">
+          </label>
+          <label class="field">
+            <span>Sentido</span>
+            <select id="direction">
+              <option value="N">Norte</option>
+              <option value="S">Sul</option>
+              <option value="L">Leste</option>
+              <option value="O">Oeste</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>KM inicial</span>
+            <input id="startKm" type="number" step="0.001" value="0">
+          </label>
+          <label class="field">
+            <span>Nome</span>
+            <input id="displayName" type="text" placeholder="Descrição opcional">
+          </label>
+          <label class="field">
+            <span>Raio padrão (m)</span>
+            <input id="defaultRadius" type="number" step="1" value="500">
+          </label>
+          <label class="field">
+            <span>Passo exportação (km)</span>
+            <input id="exportStepKm" type="number" step="0.001" value="0.1">
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Operações</h2>
+        <div class="stack">
+          <button id="exportData" class="btn btn-primary" type="button">Exportar SQL + JSON</button>
+          <button id="loadHistory" class="btn btn-secondary" type="button">Carregar histórico salvo</button>
+          <button id="toggleImported" class="btn btn-secondary" type="button">Mostrar/ocultar importados</button>
+          <button id="clearAll" class="btn btn-danger" type="button">Limpar tudo</button>
+        </div>
+        <p class="hint">O histórico local é salvo automaticamente a cada clique.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Importar JSON</h2>
+        <label class="field">
+          <span>Arquivo</span>
+          <input id="importFile" type="file" accept=".json,application/json">
+        </label>
+        <label class="field">
+          <span>Ou cole o JSON</span>
+          <textarea id="importText" rows="8" placeholder='{"version":1,"anchors":[...]} ou [{"longitude":...}]'></textarea>
+        </label>
+        <div class="row">
+          <button id="importJson" class="btn btn-secondary" type="button">Importar e exibir</button>
+          <button id="useJsonAsHistory" class="btn btn-secondary" type="button">Importar como edição</button>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <section class="map-panel">
+        <div class="map-toolbar">
+          <div>
+            <p class="toolbar-label">Resumo</p>
+            <p id="summaryText" class="toolbar-value">Nenhum ponto marcado.</p>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <span class="metric-label">Distância cursor</span>
+              <strong id="cursorDistance">0 m</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Próximo KM</span>
+              <strong id="nextKm">0.000</strong>
+            </div>
+          </div>
+        </div>
+        <div id="map" class="map-canvas" aria-label="Mapa"></div>
+      </section>
+
+      <section class="exports">
+        <article class="panel">
+          <div class="panel-header">
+            <h2>SQL</h2>
+            <button id="copySql" class="btn btn-ghost" type="button">Copiar</button>
+          </div>
+          <textarea id="sqlOutput" rows="14" spellcheck="false" placeholder="O SQL exportado aparecerá aqui."></textarea>
+        </article>
+        <article class="panel">
+          <div class="panel-header">
+            <h2>JSON</h2>
+            <button id="copyJson" class="btn btn-ghost" type="button">Copiar</button>
+          </div>
+          <textarea id="jsonOutput" rows="14" spellcheck="false" placeholder="O JSON exportado aparecerá aqui."></textarea>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
