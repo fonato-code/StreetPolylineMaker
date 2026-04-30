@@ -21,6 +21,8 @@ class StreetPolylineMakerApp {
 
     this.elements = {
       apiKey: document.getElementById("apiKey"),
+      appShell: document.getElementById("appShell"),
+      toggleSidebar: document.getElementById("toggleSidebar"),
       saveApiKey: document.getElementById("saveApiKey"),
       loadMap: document.getElementById("loadMap"),
       mapStatus: document.getElementById("mapStatus"),
@@ -31,6 +33,11 @@ class StreetPolylineMakerApp {
       defaultRadius: document.getElementById("defaultRadius"),
       exportStepKm: document.getElementById("exportStepKm"),
       exportData: document.getElementById("exportData"),
+      exportModal: document.getElementById("exportModal"),
+      closeExportModal: document.getElementById("closeExportModal"),
+      importModal: document.getElementById("importModal"),
+      openImportModal: document.getElementById("openImportModal"),
+      closeImportModal: document.getElementById("closeImportModal"),
       loadHistory: document.getElementById("loadHistory"),
       toggleImported: document.getElementById("toggleImported"),
       clearAll: document.getElementById("clearAll"),
@@ -54,9 +61,13 @@ class StreetPolylineMakerApp {
   }
 
   attachUiEvents() {
+    this.elements.toggleSidebar.addEventListener("click", () => this.toggleSidebar());
     this.elements.saveApiKey.addEventListener("click", () => this.saveApiKey());
     this.elements.loadMap.addEventListener("click", () => this.loadMap());
     this.elements.exportData.addEventListener("click", () => this.exportAll());
+    this.elements.openImportModal.addEventListener("click", () => this.openModal(this.elements.importModal));
+    this.elements.closeImportModal.addEventListener("click", () => this.elements.importModal.close());
+    this.elements.closeExportModal.addEventListener("click", () => this.elements.exportModal.close());
     this.elements.loadHistory.addEventListener("click", () => this.loadDraftFromStorage());
     this.elements.toggleImported.addEventListener("click", () => this.toggleImportedVisibility());
     this.elements.clearAll.addEventListener("click", () => this.clearAll());
@@ -74,6 +85,38 @@ class StreetPolylineMakerApp {
         this.undoLastPoint();
       }
     });
+
+    [this.elements.importModal, this.elements.exportModal].forEach((modal) => {
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          modal.close();
+        }
+      });
+    });
+  }
+
+  toggleSidebar() {
+    const isCollapsed = this.elements.appShell.classList.toggle("sidebar-collapsed");
+    this.elements.toggleSidebar.title = isCollapsed ? "Expandir painel" : "Minimizar painel";
+    this.elements.toggleSidebar.setAttribute("aria-label", this.elements.toggleSidebar.title);
+
+    if (this.mapReady) {
+      window.setTimeout(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+        if (this.lastCoordinate) {
+          this.map.panTo(this.lastCoordinate);
+        }
+      }, 220);
+    }
+  }
+
+  openModal(modal) {
+    if (typeof modal.showModal === "function") {
+      modal.showModal();
+      return;
+    }
+
+    modal.setAttribute("open", "");
   }
 
   restorePreferences() {
@@ -332,6 +375,7 @@ class StreetPolylineMakerApp {
     const payload = this.buildExportPayload(exportPoints);
     this.elements.sqlOutput.value = this.buildSql(exportPoints);
     this.elements.jsonOutput.value = JSON.stringify(payload, null, 2);
+    this.openModal(this.elements.exportModal);
     this.setMapStatus(`Exportação gerada com ${exportPoints.length} pontos.`);
   }
 
@@ -339,46 +383,25 @@ class StreetPolylineMakerApp {
     const safeStepKm = stepKm > 0 ? stepKm : 0.1;
     const points = [];
     let nextId = 1;
-    let distanceSinceLastGenerated = 0;
     const firstKm = this.parseNumber(anchorPoints[0].km, 0);
+    const route = this.buildRouteSegments(anchorPoints);
+    const totalDistanceKm = route.reduce((total, segment) => total + segment.distanceKm, 0);
 
-    const firstPoint = this.cloneExportPoint(anchorPoints[0], nextId++, firstKm, this.radiusForKm(firstKm, safeStepKm));
-    points.push(firstPoint);
+    points.push(this.cloneExportPoint(anchorPoints[0], nextId++, firstKm, this.radiusForKm(firstKm, safeStepKm)));
 
-    for (let index = 0; index < anchorPoints.length - 1; index += 1) {
-      const start = anchorPoints[index];
-      const end = anchorPoints[index + 1];
-      const segmentKm = this.distanceMeters(start, end) / 1000;
-      const startKm = this.parseNumber(start.km, 0);
-      const endKm = this.parseNumber(end.km, startKm);
-
-      if (segmentKm === 0) {
+    for (let targetDistanceKm = safeStepKm; targetDistanceKm < totalDistanceKm; targetDistanceKm = this.roundKm(targetDistanceKm + safeStepKm)) {
+      const routePoint = this.pointAtRouteDistance(route, targetDistanceKm);
+      if (!routePoint) {
         continue;
       }
 
-      let traversedKm = 0;
-      let remainingSegmentKm = segmentKm;
-
-      while ((distanceSinceLastGenerated + remainingSegmentKm) >= safeStepKm) {
-        const stepInsideSegment = safeStepKm - distanceSinceLastGenerated;
-        traversedKm += stepInsideSegment;
-        remainingSegmentKm -= stepInsideSegment;
-        const fraction = traversedKm / segmentKm;
-        const interpolatedKm = this.roundKm(startKm + ((endKm - startKm) * fraction));
-        const interpolated = this.interpolatePoint(start, end, fraction);
-        const radius = this.radiusForKm(interpolatedKm, safeStepKm);
-
-        points.push(this.cloneExportPoint({
-          ...start,
-          ...interpolated,
-          raio: radius,
-          km: interpolatedKm.toFixed(3),
-        }, nextId++, interpolatedKm, radius));
-
-        distanceSinceLastGenerated = 0;
-      }
-
-      distanceSinceLastGenerated = this.roundKm(distanceSinceLastGenerated + remainingSegmentKm);
+      const km = this.roundKm(firstKm + targetDistanceKm);
+      const radius = this.radiusForKm(km, safeStepKm);
+      points.push(this.cloneExportPoint({
+        ...routePoint.source,
+        longitude: routePoint.longitude,
+        latitude: routePoint.latitude,
+      }, nextId++, km, radius));
     }
 
     const lastAnchor = anchorPoints[anchorPoints.length - 1];
@@ -388,11 +411,53 @@ class StreetPolylineMakerApp {
       && Number(lastExport.longitude).toFixed(7) === Number(lastAnchor.longitude).toFixed(7);
 
     if (!sameAsLast) {
-      const lastKm = this.parseNumber(lastAnchor.km, firstKm);
+      const lastKm = this.roundKm(firstKm + totalDistanceKm);
       points.push(this.cloneExportPoint(lastAnchor, nextId, lastKm, this.radiusForKm(lastKm, safeStepKm)));
     }
 
     return points;
+  }
+
+  buildRouteSegments(anchorPoints) {
+    let accumulatedKm = 0;
+    const segments = [];
+
+    for (let index = 0; index < anchorPoints.length - 1; index += 1) {
+      const start = anchorPoints[index];
+      const end = anchorPoints[index + 1];
+      const distanceKm = this.distanceMeters(start, end) / 1000;
+
+      if (distanceKm <= 0) {
+        continue;
+      }
+
+      segments.push({
+        start,
+        end,
+        distanceKm,
+        startDistanceKm: accumulatedKm,
+        endDistanceKm: accumulatedKm + distanceKm,
+      });
+      accumulatedKm += distanceKm;
+    }
+
+    return segments;
+  }
+
+  pointAtRouteDistance(route, targetDistanceKm) {
+    const segment = route.find((item) => targetDistanceKm <= item.endDistanceKm + 1e-9);
+    if (!segment) {
+      return null;
+    }
+
+    const distanceInsideSegment = targetDistanceKm - segment.startDistanceKm;
+    const fraction = distanceInsideSegment / segment.distanceKm;
+    const interpolated = this.interpolatePoint(segment.start, segment.end, fraction);
+
+    return {
+      ...interpolated,
+      source: segment.start,
+    };
   }
 
   buildExportPayload(exportPoints) {
@@ -486,11 +551,13 @@ class StreetPolylineMakerApp {
       this.replaceAnchorPoints(anchors);
       this.persistDraft();
       this.updateSummary();
+      this.elements.importModal.close();
       this.setMapStatus(`${anchors.length} pontos importados para continuar a edição.`);
       return;
     }
 
     this.renderImportedPoints(anchors);
+    this.elements.importModal.close();
     this.setMapStatus(`${anchors.length} pontos importados para visualização.`);
   }
 
@@ -702,12 +769,16 @@ class StreetPolylineMakerApp {
   }
 
   distanceMeters(pointA, pointB) {
+    const aLat = Number(pointA.lat ?? pointA.latitude);
+    const aLng = Number(pointA.lng ?? pointA.longitude);
+    const bLat = Number(pointB.lat ?? pointB.latitude);
+    const bLng = Number(pointB.lng ?? pointB.longitude);
     const toRadians = (degrees) => degrees * (Math.PI / 180);
     const earthRadiusKm = 6371;
-    const dLat = toRadians(pointB.lat - pointA.lat);
-    const dLng = toRadians(pointB.lng - pointA.lng);
-    const lat1 = toRadians(pointA.lat);
-    const lat2 = toRadians(pointB.lat);
+    const dLat = toRadians(bLat - aLat);
+    const dLng = toRadians(bLng - aLng);
+    const lat1 = toRadians(aLat);
+    const lat2 = toRadians(bLat);
     const a = Math.sin(dLat / 2) ** 2
       + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
