@@ -3,6 +3,15 @@ const STORAGE_KEYS = {
   draft: "streetPolylineMaker.draft",
 };
 
+const DRAFT_VERSION = 2;
+
+function generateRouteId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `route_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 class StreetPolylineMakerApp {
   constructor() {
     this.google = null;
@@ -35,6 +44,8 @@ class StreetPolylineMakerApp {
     this.previewExportPoints = [];
     this.streetViewResize = { active: false, startY: 0, startHeight: 0 };
     this.anchorsOnMapVisible = true;
+    this.routes = [];
+    this.activeRouteId = null;
 
     this.elements = {
       appShell: document.getElementById("appShell"),
@@ -85,8 +96,14 @@ class StreetPolylineMakerApp {
       streetViewPanel: document.getElementById("streetViewPanel"),
       streetViewPano: document.getElementById("streetViewPano"),
       streetViewResizeHandle: document.getElementById("streetViewResizeHandle"),
+      routesModal: document.getElementById("routesModal"),
+      openRoutesModal: document.getElementById("openRoutesModal"),
+      closeRoutesModal: document.getElementById("closeRoutesModal"),
+      routesTableBody: document.getElementById("routesTableBody"),
+      addRouteBtn: document.getElementById("addRouteBtn"),
     };
 
+    this.hydrateRoutesFromLocalStorage();
     this.attachUiEvents();
     this.restorePreferences();
     this.updateSummary();
@@ -154,6 +171,312 @@ class StreetPolylineMakerApp {
         this.elements.mapsApiModal.close();
       }
     });
+
+    this.elements.openRoutesModal.addEventListener("click", () => this.openRoutesManager());
+    this.elements.closeRoutesModal.addEventListener("click", () => this.elements.routesModal.close());
+    this.elements.addRouteBtn.addEventListener("click", () => this.addNewRoute());
+    [this.elements.roadName, this.elements.displayName].forEach((el) => {
+      el.addEventListener("change", () => this.syncFormMetadataToActiveRoute());
+    });
+    this.elements.direction.addEventListener("change", () => this.syncFormMetadataToActiveRoute());
+
+    this.elements.routesModal.addEventListener("click", (event) => {
+      if (event.target === this.elements.routesModal) {
+        this.elements.routesModal.close();
+      }
+    });
+  }
+
+  cloneAnchors(anchors) {
+    return (anchors || []).map((p) => ({ ...p }));
+  }
+
+  createEmptyRoute() {
+    return {
+      id: generateRouteId(),
+      roadName: "",
+      direction: "N",
+      displayName: "",
+      startKm: 0,
+      defaultRadius: 500,
+      anchors: [],
+    };
+  }
+
+  normalizeRoute(raw) {
+    return {
+      id: raw.id || generateRouteId(),
+      roadName: raw.roadName ?? raw.rodovia ?? "",
+      direction: raw.direction ?? raw.sentido ?? "N",
+      displayName: raw.displayName ?? raw.nome ?? "",
+      startKm: this.parseNumber(raw.startKm, 0),
+      defaultRadius: this.parseNumber(raw.defaultRadius, 500),
+      anchors: this.cloneAnchors(raw.anchors || []),
+    };
+  }
+
+  getActiveRoute() {
+    return this.routes.find((r) => r.id === this.activeRouteId) || null;
+  }
+
+  getRouteById(id) {
+    return this.routes.find((r) => r.id === id) || null;
+  }
+
+  applyMetaExportStep(meta) {
+    if (!meta) {
+      return;
+    }
+    if (meta.exportStepM != null && meta.exportStepM !== "") {
+      this.elements.exportStepM.value = String(Math.round(this.parseNumber(meta.exportStepM, 100)));
+    } else if (meta.exportStepKm != null) {
+      this.elements.exportStepM.value = String(Math.round(this.parseNumber(meta.exportStepKm, 0.1) * 1000));
+    }
+  }
+
+  applyRouteToForm(route) {
+    this.elements.roadName.value = route.roadName || "";
+    this.elements.direction.value = route.direction || "N";
+    this.elements.displayName.value = route.displayName || "";
+    this.elements.defaultRadius.value = route.defaultRadius || 500;
+    this.elements.startKm.value = Number(route.startKm ?? 0).toFixed(3);
+  }
+
+  hydrateRoutesFromLocalStorage() {
+    const raw = localStorage.getItem(STORAGE_KEYS.draft);
+    if (!raw) {
+      const r = this.createEmptyRoute();
+      this.routes = [r];
+      this.activeRouteId = r.id;
+      this.anchorPoints = [];
+      return;
+    }
+
+    try {
+      const draft = JSON.parse(raw);
+      this.applyPersistedDraft(draft);
+    } catch (_error) {
+      const r = this.createEmptyRoute();
+      this.routes = [r];
+      this.activeRouteId = r.id;
+      this.anchorPoints = [];
+    }
+  }
+
+  applyPersistedDraft(draft) {
+    if (draft.version === DRAFT_VERSION && Array.isArray(draft.routes) && draft.routes.length > 0) {
+      this.routes = draft.routes.map((r) => this.normalizeRoute(r));
+      this.activeRouteId = draft.activeRouteId && this.getRouteById(draft.activeRouteId)
+        ? draft.activeRouteId
+        : this.routes[0].id;
+      this.applyMetaExportStep(draft.meta);
+      const active = this.getActiveRoute();
+      this.anchorPoints = this.cloneAnchors(active.anchors);
+      this.applyRouteToForm(active);
+      this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+      this.lastCoordinate = null;
+      return;
+    }
+
+    const r = this.createEmptyRoute();
+    if (draft.meta) {
+      r.roadName = draft.meta.roadName || "";
+      r.direction = draft.meta.direction || "N";
+      r.displayName = draft.meta.displayName || "";
+      r.defaultRadius = this.parseNumber(draft.meta.defaultRadius, 500);
+      r.startKm = this.parseNumber(draft.meta.startKm, 0);
+      this.applyMetaExportStep(draft.meta);
+    }
+    r.anchors = this.cloneAnchors(Array.isArray(draft.anchors) ? draft.anchors : []);
+    this.routes = [r];
+    this.activeRouteId = r.id;
+    this.anchorPoints = this.cloneAnchors(r.anchors);
+    this.applyRouteToForm(r);
+    const lastPt = this.anchorPoints[this.anchorPoints.length - 1];
+    if (lastPt) {
+      this.lastCoordinate = { lat: lastPt.latitude, lng: lastPt.longitude };
+      this.currentKm = this.parseNumber(lastPt.km, 0);
+    } else {
+      this.currentKm = r.startKm;
+      this.lastCoordinate = null;
+    }
+  }
+
+  commitActiveRouteToState() {
+    const route = this.getActiveRoute();
+    if (!route) {
+      return;
+    }
+    route.anchors = this.cloneAnchors(this.anchorPoints);
+    route.startKm = this.parseNumber(this.elements.startKm.value, 0);
+    route.defaultRadius = this.getDefaultRadius();
+    route.roadName = this.elements.roadName.value.trim();
+    route.direction = this.elements.direction.value;
+    route.displayName = this.elements.displayName.value.trim();
+  }
+
+  syncFormMetadataToActiveRoute() {
+    const route = this.getActiveRoute();
+    if (!route) {
+      return;
+    }
+    route.roadName = this.elements.roadName.value.trim();
+    route.direction = this.elements.direction.value;
+    route.displayName = this.elements.displayName.value.trim();
+    this.persistDraft();
+    this.renderRoutesTable();
+  }
+
+  switchActiveRoute(routeId) {
+    if (!this.getRouteById(routeId)) {
+      return;
+    }
+    this.commitActiveRouteToState();
+    this.activeRouteId = routeId;
+    const route = this.getActiveRoute();
+    this.applyRouteToForm(route);
+    const snapshot = this.cloneAnchors(route.anchors);
+    if (this.mapReady) {
+      this.replaceAnchorPoints(snapshot);
+    } else {
+      this.anchorPoints = snapshot;
+      const lastPt = this.anchorPoints[this.anchorPoints.length - 1];
+      if (lastPt) {
+        this.lastCoordinate = { lat: lastPt.latitude, lng: lastPt.longitude };
+        this.currentKm = this.parseNumber(lastPt.km, 0);
+      } else {
+        this.lastCoordinate = null;
+        this.currentKm = route.startKm;
+      }
+    }
+    this.streetViewFocusedIndex = null;
+    this.refreshAnchorVisuals();
+    this.persistDraft();
+    this.updateSummary();
+    this.updateAnchorsToggleUi();
+    this.renderRoutesTable();
+  }
+
+  openRoutesManager() {
+    this.commitActiveRouteToState();
+    this.renderRoutesTable();
+    this.openModal(this.elements.routesModal);
+  }
+
+  renderRoutesTable() {
+    const tbody = this.elements.routesTableBody;
+    if (!tbody) {
+      return;
+    }
+    tbody.replaceChildren();
+
+    this.routes.forEach((route) => {
+      const tr = document.createElement("tr");
+      if (route.id === this.activeRouteId) {
+        tr.classList.add("routes-row-active");
+      }
+
+      const tdRoad = document.createElement("td");
+      const inpRoad = document.createElement("input");
+      inpRoad.type = "text";
+      inpRoad.value = route.roadName;
+      inpRoad.placeholder = "BR-116";
+      inpRoad.addEventListener("change", () => {
+        route.roadName = inpRoad.value.trim();
+        if (route.id === this.activeRouteId) {
+          this.elements.roadName.value = route.roadName;
+        }
+        this.persistDraft();
+      });
+      tdRoad.appendChild(inpRoad);
+
+      const tdDir = document.createElement("td");
+      const sel = document.createElement("select");
+      [["N", "Norte"], ["S", "Sul"], ["L", "Leste"], ["O", "Oeste"]].forEach(([val, label]) => {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        sel.appendChild(opt);
+      });
+      sel.value = route.direction || "N";
+      sel.addEventListener("change", () => {
+        route.direction = sel.value;
+        if (route.id === this.activeRouteId) {
+          this.elements.direction.value = route.direction;
+        }
+        this.persistDraft();
+      });
+      tdDir.appendChild(sel);
+
+      const tdName = document.createElement("td");
+      const inpName = document.createElement("input");
+      inpName.type = "text";
+      inpName.value = route.displayName;
+      inpName.placeholder = "Descricao";
+      inpName.addEventListener("change", () => {
+        route.displayName = inpName.value.trim();
+        if (route.id === this.activeRouteId) {
+          this.elements.displayName.value = route.displayName;
+        }
+        this.persistDraft();
+      });
+      tdName.appendChild(inpName);
+
+      const tdPts = document.createElement("td");
+      tdPts.className = "routes-col-points";
+      tdPts.textContent = String(route.anchors.length);
+
+      const tdAct = document.createElement("td");
+      tdAct.className = "routes-col-actions";
+
+      const btnEdit = document.createElement("button");
+      btnEdit.type = "button";
+      btnEdit.className = "btn btn-primary";
+      btnEdit.textContent = "Editar trecho";
+      btnEdit.addEventListener("click", () => {
+        this.switchActiveRoute(route.id);
+        this.elements.routesModal.close();
+        this.setMapStatus(`Editando trecho: ${route.roadName || "sem nome"}.`);
+      });
+
+      const btnDel = document.createElement("button");
+      btnDel.type = "button";
+      btnDel.className = "btn btn-danger";
+      btnDel.textContent = "Excluir";
+      btnDel.disabled = this.routes.length <= 1;
+      btnDel.addEventListener("click", () => {
+        if (this.routes.length <= 1) {
+          return;
+        }
+        if (!window.confirm("Excluir esta rodovia e todos os pontos do trecho?")) {
+          return;
+        }
+        this.commitActiveRouteToState();
+        this.routes = this.routes.filter((r) => r.id !== route.id);
+        if (this.activeRouteId === route.id) {
+          this.activeRouteId = this.routes[0].id;
+        }
+        this.switchActiveRoute(this.activeRouteId);
+      });
+
+      tdAct.appendChild(btnEdit);
+      tdAct.appendChild(btnDel);
+
+      tr.appendChild(tdRoad);
+      tr.appendChild(tdDir);
+      tr.appendChild(tdName);
+      tr.appendChild(tdPts);
+      tr.appendChild(tdAct);
+      tbody.appendChild(tr);
+    });
+  }
+
+  addNewRoute() {
+    this.commitActiveRouteToState();
+    const r = this.createEmptyRoute();
+    this.routes.push(r);
+    this.switchActiveRoute(r.id);
+    this.setMapStatus("Nova rodovia criada. Marque o trecho no mapa.");
   }
 
   openMapsApiGate() {
@@ -271,7 +594,15 @@ class StreetPolylineMakerApp {
 
     this.initializeMap();
     this.setMapStatus("Mapa carregado. Clique para comecar a marcar a rodovia.");
-    this.loadDraftFromStorage();
+    if (this.anchorPoints.length > 0) {
+      const snapshot = this.cloneAnchors(this.anchorPoints);
+      this.anchorPoints = [];
+      this.replaceAnchorPoints(snapshot);
+    } else {
+      this.updateSummary();
+      this.refreshExportPreview();
+    }
+    this.renderRoutesTable();
     this.finalizeMapsSession(apiKey);
     return true;
   }
@@ -813,17 +1144,33 @@ class StreetPolylineMakerApp {
   }
 
   exportAll() {
-    if (this.anchorPoints.length === 0) {
-      this.setMapStatus("Marque pelo menos um ponto antes de exportar.", true);
+    this.commitActiveRouteToState();
+    const stepM = this.getExportStepMeters();
+    const routesWithData = this.routes.filter((r) => r.anchors.length > 0);
+    if (routesWithData.length === 0) {
+      this.setMapStatus("Marque pelo menos um ponto em algum trecho antes de exportar.", true);
       return;
     }
 
-    const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters());
-    const payload = this.buildExportPayload(exportPoints);
-    this.elements.sqlOutput.value = this.buildSql(exportPoints);
+    let globalId = 1;
+    const flatPoints = [];
+    const sqlChunks = [];
+    routesWithData.forEach((route) => {
+      const exportPoints = this.generateExportPoints(route.anchors, stepM);
+      const renumbered = exportPoints.map((p) => {
+        const row = { ...p, id: globalId++ };
+        flatPoints.push(row);
+        return row;
+      });
+      const label = `${route.roadName || "sem nome"} (${route.direction})`;
+      sqlChunks.push(`/* Trecho: ${label} */\n${this.buildSql(renumbered)}`);
+    });
+
+    const payload = this.buildExportPayload(routesWithData, flatPoints, stepM);
+    this.elements.sqlOutput.value = sqlChunks.join("\n\n");
     this.elements.jsonOutput.value = JSON.stringify(payload, null, 2);
     this.openModal(this.elements.exportModal);
-    this.setMapStatus(`Exportacao gerada com ${exportPoints.length} pontos.`);
+    this.setMapStatus(`Exportacao gerada com ${flatPoints.length} pontos em ${routesWithData.length} trecho(s).`);
   }
 
   toggleExportPreview() {
@@ -1141,16 +1488,24 @@ class StreetPolylineMakerApp {
     };
   }
 
-  buildExportPayload(exportPoints) {
+  buildExportPayload(routesWithData, flatPoints, stepM) {
     return {
-      version: 1,
+      version: DRAFT_VERSION,
       createdAt: new Date().toISOString(),
-      roadName: this.elements.roadName.value.trim(),
-      startKm: this.parseNumber(this.elements.startKm.value, 0),
-      stepKm: this.getExportStepMeters() / 1000,
-      stepM: this.getExportStepMeters(),
-      anchors: this.anchorPoints,
-      exportPoints,
+      activeRouteId: this.activeRouteId,
+      stepKm: stepM / 1000,
+      stepM,
+      routes: routesWithData.map((route) => ({
+        id: route.id,
+        roadName: route.roadName,
+        direction: route.direction,
+        displayName: route.displayName,
+        startKm: route.startKm,
+        defaultRadius: route.defaultRadius,
+        anchors: this.cloneAnchors(route.anchors),
+        exportPoints: this.generateExportPoints(route.anchors, stepM),
+      })),
+      exportPointsFlat: flatPoints,
     };
   }
 
@@ -1223,6 +1578,11 @@ class StreetPolylineMakerApp {
       return;
     }
 
+    if (asEditableHistory && this.importRoutesFromPayload(parsed)) {
+      this.elements.importModal.close();
+      return;
+    }
+
     const anchors = this.extractAnchorList(parsed);
     if (anchors.length === 0) {
       this.setMapStatus("O JSON nao contem pontos reconheciveis.", true);
@@ -1235,6 +1595,7 @@ class StreetPolylineMakerApp {
       this.updateSummary();
       this.elements.importModal.close();
       this.refreshExportPreview();
+      this.renderRoutesTable();
       this.setMapStatus(`${anchors.length} pontos importados para continuar a edicao.`);
       return;
     }
@@ -1242,6 +1603,23 @@ class StreetPolylineMakerApp {
     this.renderImportedPoints(anchors);
     this.elements.importModal.close();
     this.setMapStatus(`${anchors.length} pontos importados para visualizacao.`);
+  }
+
+  importRoutesFromPayload(parsed) {
+    if (!(parsed.version >= 2 && Array.isArray(parsed.routes) && parsed.routes.length > 0)) {
+      return false;
+    }
+
+    this.commitActiveRouteToState();
+    this.routes = parsed.routes.map((r) => this.normalizeRoute(r));
+    this.activeRouteId = parsed.activeRouteId && this.getRouteById(parsed.activeRouteId)
+      ? parsed.activeRouteId
+      : this.routes[0].id;
+    this.applyMetaExportStep(parsed.meta || { exportStepM: parsed.stepM, exportStepKm: parsed.stepKm });
+    this.switchActiveRoute(this.activeRouteId);
+    const totalAnchors = this.routes.reduce((n, r) => n + r.anchors.length, 0);
+    this.setMapStatus(`${this.routes.length} rodovia(s), ${totalAnchors} ponto(s) importados para edicao.`);
+    return true;
   }
 
   extractAnchorList(parsed) {
@@ -1253,6 +1631,23 @@ class StreetPolylineMakerApp {
     }
     if (Array.isArray(parsed.exportPoints)) {
       return parsed.exportPoints;
+    }
+    if (parsed.version >= 2 && Array.isArray(parsed.routes)) {
+      const merged = [];
+      parsed.routes.forEach((route) => {
+        if (Array.isArray(route.anchors)) {
+          merged.push(...route.anchors);
+        }
+      });
+      if (merged.length > 0) {
+        return merged;
+      }
+      parsed.routes.forEach((route) => {
+        if (Array.isArray(route.exportPoints)) {
+          merged.push(...route.exportPoints);
+        }
+      });
+      return merged;
     }
     return [];
   }
@@ -1363,9 +1758,20 @@ class StreetPolylineMakerApp {
       }
     }
 
+    const active = this.getActiveRoute();
+    if (active) {
+      active.anchors = this.cloneAnchors(this.anchorPoints);
+      active.startKm = this.parseNumber(this.elements.startKm.value, 0);
+      active.defaultRadius = this.getDefaultRadius();
+      active.roadName = this.elements.roadName.value.trim();
+      active.direction = this.elements.direction.value;
+      active.displayName = this.elements.displayName.value.trim();
+    }
+
     this.streetViewFocusedIndex = null;
     this.refreshExportPreview();
     this.updateAnchorsToggleUi();
+    this.persistDraft();
   }
 
   loadDraftFromStorage() {
@@ -1383,48 +1789,37 @@ class StreetPolylineMakerApp {
       return;
     }
 
-    if (draft.meta) {
-      this.elements.roadName.value = draft.meta.roadName || "";
-      this.elements.direction.value = draft.meta.direction || "N";
-      this.elements.displayName.value = draft.meta.displayName || "";
-      this.elements.defaultRadius.value = draft.meta.defaultRadius || 500;
-      this.elements.startKm.value = this.parseNumber(draft.meta.startKm, 0).toFixed(3);
-      if (draft.meta.exportStepM != null && draft.meta.exportStepM !== "") {
-        this.elements.exportStepM.value = String(Math.round(this.parseNumber(draft.meta.exportStepM, 100)));
-      } else if (draft.meta.exportStepKm != null) {
-        this.elements.exportStepM.value = String(Math.round(this.parseNumber(draft.meta.exportStepKm, 0.1) * 1000));
-      } else {
-        this.elements.exportStepM.value = "100";
-      }
-    }
-
-    const anchors = Array.isArray(draft.anchors) ? draft.anchors : [];
-    if (anchors.length === 0) {
-      this.updateSummary();
-      return;
-    }
-
+    this.applyPersistedDraft(draft);
     if (this.mapReady) {
-      this.replaceAnchorPoints(anchors);
-    } else {
-      this.anchorPoints = anchors;
+      const active = this.getActiveRoute();
+      const snapshot = active ? this.cloneAnchors(active.anchors) : [];
+      this.replaceAnchorPoints(snapshot);
     }
+
     this.updateSummary();
-    this.setMapStatus(`${anchors.length} pontos restaurados do historico local.`);
+    this.setMapStatus(`Historico local carregado (${this.routes.length} rodovia(s)).`);
     this.refreshExportPreview();
+    this.updateAnchorsToggleUi();
+    this.renderRoutesTable();
   }
 
   persistDraft() {
+    this.commitActiveRouteToState();
     const payload = {
+      version: DRAFT_VERSION,
+      activeRouteId: this.activeRouteId,
       meta: {
-        roadName: this.elements.roadName.value.trim(),
-        direction: this.elements.direction.value,
-        displayName: this.elements.displayName.value.trim(),
-        defaultRadius: this.getDefaultRadius(),
-        startKm: this.parseNumber(this.elements.startKm.value, 0),
         exportStepM: this.getExportStepMeters(),
       },
-      anchors: this.anchorPoints,
+      routes: this.routes.map((r) => ({
+        id: r.id,
+        roadName: r.roadName,
+        direction: r.direction,
+        displayName: r.displayName,
+        startKm: r.startKm,
+        defaultRadius: r.defaultRadius,
+        anchors: this.cloneAnchors(r.anchors),
+      })),
     };
 
     localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(payload));
@@ -1463,14 +1858,22 @@ class StreetPolylineMakerApp {
     this.importedCircles = [];
     this.anchorPoints = [];
     this.lastCoordinate = null;
-    this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+    const active = this.getActiveRoute();
+    if (active) {
+      active.anchors = [];
+      this.currentKm = active.startKm;
+      this.elements.startKm.value = Number(active.startKm).toFixed(3);
+    } else {
+      this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+    }
     this.elements.sqlOutput.value = "";
     this.elements.jsonOutput.value = "";
-    localStorage.removeItem(STORAGE_KEYS.draft);
+    this.persistDraft();
     this.updateSummary();
     this.updateImportedToggleUi();
     this.updateAnchorsToggleUi();
-    this.setMapStatus("Mapa e historico local limpos.");
+    this.renderRoutesTable();
+    this.setMapStatus("Trecho ativo limpo. Importados removidos. Historico local atualizado.");
   }
 
   syncPreviewRadius() {
@@ -1540,15 +1943,18 @@ class StreetPolylineMakerApp {
   }
 
   updateSummary() {
+    const active = this.getActiveRoute();
+    const trecho = active?.roadName ? ` [${active.roadName}]` : "";
+
     if (this.anchorPoints.length === 0) {
-      this.elements.summaryText.textContent = "Nenhum ponto marcado.";
+      this.elements.summaryText.textContent = `Nenhum ponto marcado no trecho ativo${trecho}.`;
       this.elements.nextKm.textContent = this.parseNumber(this.elements.startKm.value, 0).toFixed(3);
       return;
     }
 
     const first = this.anchorPoints[0];
     const last = this.anchorPoints[this.anchorPoints.length - 1];
-    this.elements.summaryText.textContent = `${this.anchorPoints.length} pontos marcados em ${first.rodovia || "rodovia sem nome"}, do km ${first.km} ao km ${last.km}.`;
+    this.elements.summaryText.textContent = `${this.anchorPoints.length} pontos em ${first.rodovia || "rodovia sem nome"}${trecho}, km ${first.km} a ${last.km}.`;
     this.elements.nextKm.textContent = this.parseNumber(last.km, 0).toFixed(3);
   }
 
