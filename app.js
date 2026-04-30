@@ -10,14 +10,18 @@ class StreetPolylineMakerApp {
     this.anchorMarkers = [];
     this.anchorCircles = [];
     this.importedCircles = [];
+    this.previewExportMarkers = [];
+    this.previewExportCircles = [];
     this.previewLine = null;
     this.previewRadius = null;
     this.anchorPoints = [];
     this.lastCoordinate = null;
     this.currentKm = 0;
     this.importedVisible = true;
+    this.exportPreviewVisible = false;
     this.kmManuallyChanged = false;
     this.mapReady = false;
+    this.radiusPresets = [50, 100, 150, 250, 500];
 
     this.elements = {
       apiKey: document.getElementById("apiKey"),
@@ -33,6 +37,7 @@ class StreetPolylineMakerApp {
       defaultRadius: document.getElementById("defaultRadius"),
       exportStepKm: document.getElementById("exportStepKm"),
       exportData: document.getElementById("exportData"),
+      toggleExportPreview: document.getElementById("toggleExportPreview"),
       exportModal: document.getElementById("exportModal"),
       closeExportModal: document.getElementById("closeExportModal"),
       importModal: document.getElementById("importModal"),
@@ -65,6 +70,7 @@ class StreetPolylineMakerApp {
     this.elements.saveApiKey.addEventListener("click", () => this.saveApiKey());
     this.elements.loadMap.addEventListener("click", () => this.loadMap());
     this.elements.exportData.addEventListener("click", () => this.exportAll());
+    this.elements.toggleExportPreview.addEventListener("click", () => this.toggleExportPreview());
     this.elements.openImportModal.addEventListener("click", () => this.openModal(this.elements.importModal));
     this.elements.closeImportModal.addEventListener("click", () => this.elements.importModal.close());
     this.elements.closeExportModal.addEventListener("click", () => this.elements.exportModal.close());
@@ -76,6 +82,7 @@ class StreetPolylineMakerApp {
     this.elements.importFile.addEventListener("change", (event) => this.loadImportFile(event));
     this.elements.startKm.addEventListener("change", () => this.handleKmInputChange());
     this.elements.defaultRadius.addEventListener("change", () => this.syncPreviewRadius());
+    this.elements.exportStepKm.addEventListener("change", () => this.refreshExportPreview());
     this.elements.copySql.addEventListener("click", () => this.copyOutput(this.elements.sqlOutput));
     this.elements.copyJson.addEventListener("click", () => this.copyOutput(this.elements.jsonOutput));
 
@@ -83,6 +90,30 @@ class StreetPolylineMakerApp {
       if (event.ctrlKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         this.undoLastPoint();
+        return;
+      }
+
+      if (event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key === "1") {
+          event.preventDefault();
+          this.adjustRadiusByPreset(1);
+          return;
+        }
+        if (key === "2") {
+          event.preventDefault();
+          this.adjustRadiusByPreset(-1);
+          return;
+        }
+        if (key === "q") {
+          event.preventDefault();
+          this.adjustRadiusByStep(50);
+          return;
+        }
+        if (key === "w") {
+          event.preventDefault();
+          this.adjustRadiusByStep(-50);
+        }
       }
     });
 
@@ -117,6 +148,31 @@ class StreetPolylineMakerApp {
     }
 
     modal.setAttribute("open", "");
+  }
+
+  adjustRadiusByPreset(direction) {
+    const currentRadius = this.getDefaultRadius();
+    if (direction > 0) {
+      const nextValue = this.radiusPresets.find((value) => value > currentRadius);
+      if (nextValue) {
+        this.elements.defaultRadius.value = nextValue;
+        this.syncPreviewRadius();
+      }
+      return;
+    }
+
+    const previousValues = this.radiusPresets.filter((value) => value < currentRadius);
+    if (previousValues.length > 0) {
+      this.elements.defaultRadius.value = previousValues[previousValues.length - 1];
+      this.syncPreviewRadius();
+    }
+  }
+
+  adjustRadiusByStep(step) {
+    const currentRadius = this.getDefaultRadius();
+    const nextRadius = Math.max(50, Math.min(500, currentRadius + step));
+    this.elements.defaultRadius.value = nextRadius;
+    this.syncPreviewRadius();
   }
 
   restorePreferences() {
@@ -241,6 +297,7 @@ class StreetPolylineMakerApp {
     this.kmManuallyChanged = true;
     this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
     this.updateSummary();
+    this.refreshExportPreview();
   }
 
   handleMapClick(latLng) {
@@ -273,6 +330,7 @@ class StreetPolylineMakerApp {
     this.kmManuallyChanged = false;
     this.persistDraft();
     this.updateSummary();
+    this.refreshExportPreview();
   }
 
   handleMapMove(latLng) {
@@ -363,6 +421,7 @@ class StreetPolylineMakerApp {
 
     this.persistDraft();
     this.updateSummary();
+    this.refreshExportPreview();
   }
 
   exportAll() {
@@ -377,6 +436,75 @@ class StreetPolylineMakerApp {
     this.elements.jsonOutput.value = JSON.stringify(payload, null, 2);
     this.openModal(this.elements.exportModal);
     this.setMapStatus(`Exportação gerada com ${exportPoints.length} pontos.`);
+  }
+
+  toggleExportPreview() {
+    if (!this.mapReady) {
+      this.setMapStatus("Carregue o mapa antes de exibir a pre-visualizacao.", true);
+      return;
+    }
+
+    this.exportPreviewVisible = !this.exportPreviewVisible;
+    this.elements.toggleExportPreview.textContent = this.exportPreviewVisible
+      ? "Esconder pre-visualizacao da exportacao"
+      : "Exibir pre-visualizacao da exportacao";
+
+    this.refreshExportPreview();
+    this.setMapStatus(this.exportPreviewVisible ? "Pre-visualizacao da exportacao exibida." : "Pre-visualizacao da exportacao ocultada.");
+  }
+
+  refreshExportPreview() {
+    this.clearExportPreview();
+
+    if (!this.exportPreviewVisible || !this.mapReady || this.anchorPoints.length === 0) {
+      return;
+    }
+
+    const exportPoints = this.generateExportPoints(this.anchorPoints, this.parseNumber(this.elements.exportStepKm.value, 0.1));
+    exportPoints.forEach((point, index) => this.renderExportPreviewPoint(point, index));
+  }
+
+  clearExportPreview() {
+    this.previewExportMarkers.forEach((marker) => marker.setMap(null));
+    this.previewExportCircles.forEach((circle) => circle.setMap(null));
+    this.previewExportMarkers = [];
+    this.previewExportCircles = [];
+  }
+
+  renderExportPreviewPoint(point, index) {
+    const isKilometerPoint = index % 10 === 0;
+    const color = isKilometerPoint ? "#f08c00" : "#1971c2";
+    const position = { lat: Number(point.latitude), lng: Number(point.longitude) };
+    const marker = new this.google.maps.Marker({
+      position,
+      map: this.map,
+      clickable: false,
+      zIndex: isKilometerPoint ? 900 : 700,
+      title: `${point.rodovia || "Rodovia"} km ${point.km}`,
+      icon: {
+        path: this.google.maps.SymbolPath.CIRCLE,
+        fillColor: color,
+        fillOpacity: 0.95,
+        strokeColor: "#ffffff",
+        strokeWeight: isKilometerPoint ? 2 : 1.5,
+        scale: isKilometerPoint ? 7 : 5,
+      },
+    });
+
+    const circle = new this.google.maps.Circle({
+      strokeColor: color,
+      strokeOpacity: isKilometerPoint ? 0.65 : 0.35,
+      strokeWeight: isKilometerPoint ? 2 : 1,
+      fillColor: color,
+      fillOpacity: isKilometerPoint ? 0.1 : 0.04,
+      center: position,
+      radius: Number(point.raio) || this.getDefaultRadius(),
+      map: this.map,
+      clickable: false,
+    });
+
+    this.previewExportMarkers.push(marker);
+    this.previewExportCircles.push(circle);
   }
 
   generateExportPoints(anchorPoints, stepKm) {
@@ -552,6 +680,7 @@ class StreetPolylineMakerApp {
       this.persistDraft();
       this.updateSummary();
       this.elements.importModal.close();
+      this.refreshExportPreview();
       this.setMapStatus(`${anchors.length} pontos importados para continuar a edição.`);
       return;
     }
@@ -638,6 +767,7 @@ class StreetPolylineMakerApp {
         this.map.panTo(this.lastCoordinate);
       }
     }
+    this.refreshExportPreview();
   }
 
   loadDraftFromStorage() {
@@ -677,6 +807,7 @@ class StreetPolylineMakerApp {
     }
     this.updateSummary();
     this.setMapStatus(`${anchors.length} pontos restaurados do histórico local.`);
+    this.refreshExportPreview();
   }
 
   persistDraft() {
@@ -710,6 +841,7 @@ class StreetPolylineMakerApp {
     this.anchorMarkers.forEach((marker) => marker.setMap(null));
     this.anchorCircles.forEach((circle) => circle.setMap(null));
     this.importedCircles.forEach((circle) => circle.setMap(null));
+    this.clearExportPreview();
 
     this.anchorMarkers = [];
     this.anchorCircles = [];
@@ -728,6 +860,7 @@ class StreetPolylineMakerApp {
     if (this.previewRadius) {
       this.previewRadius.setRadius(this.getDefaultRadius());
     }
+    this.refreshExportPreview();
   }
 
   updateSummary() {

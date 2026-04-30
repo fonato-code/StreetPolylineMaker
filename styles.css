@@ -190,6 +190,25 @@ textarea {
   gap: 10px;
 }
 
+.shortcut-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shortcut-list p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.shortcut-list span {
+  text-align: right;
+}
+
 .btn,
 .icon-btn {
   border: 0;
@@ -336,6 +355,19 @@ textarea {
   min-width: 0;
 }
 
+kbd {
+  display: inline-block;
+  min-width: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #eef3f1;
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
 @media (max-width: 1120px) {
   .config-bar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -387,6 +419,15 @@ textarea {
 
   .modal-grid {
     grid-template-columns: 1fr;
+  }
+
+  .shortcut-list p {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .shortcut-list span {
+    text-align: left;
   }
 }
 
