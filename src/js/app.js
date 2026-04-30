@@ -19,6 +19,7 @@ export class StreetPolylineMakerApp {
     this.previewLine = null;
     this.previewRadius = null;
     this.historyInfoWindow = null;
+    this.historyTooltipCloseTimer = null;
     this.lastCoordinate = null;
     this.currentKm = 0;
     this.importedVisible = true;
@@ -1053,6 +1054,14 @@ export class StreetPolylineMakerApp {
     this.previewRadius.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
 
     this.historyInfoWindow = new this.google.maps.InfoWindow();
+    this.google.maps.event.addListener(this.historyInfoWindow, "domready", () => {
+      const root = document.getElementById("street-polyline-history-tooltip");
+      if (!root) {
+        return;
+      }
+      root.onmouseenter = () => this.cancelHistoryTooltipClose();
+      root.onmouseleave = () => this.scheduleHistoryTooltipClose();
+    });
     this.streetViewService = new this.google.maps.StreetViewService();
     this.streetViewPanorama = null;
     this.attachRotationHandlers();
@@ -2072,9 +2081,11 @@ export class StreetPolylineMakerApp {
       });
 
       [marker, circle].forEach((overlay) => {
-        overlay.addListener("mouseover", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
-        overlay.addListener("mousemove", (event) => this.showHistoryTooltip(normalized, event.latLng || position));
-        overlay.addListener("mouseout", () => this.closeHistoryTooltip());
+        overlay.addListener("mouseover", (event) => {
+          this.cancelHistoryTooltipClose();
+          this.showHistoryTooltip(normalized, event.latLng || position);
+        });
+        overlay.addListener("mouseout", () => this.scheduleHistoryTooltipClose());
         overlay.addListener("click", (event) => {
           if (event.domEvent?.ctrlKey) {
             this.createAnchorFromHistory(normalized);
@@ -2300,20 +2311,37 @@ export class StreetPolylineMakerApp {
     const position = typeof latLng.lat === "function" ? latLng : { lat: latLng.lat, lng: latLng.lng };
     this.historyInfoWindow.setPosition(position);
     this.historyInfoWindow.setContent(`
-      <div style="min-width:220px;font-size:12px;line-height:1.45">
-        <strong>${point.rodovia || "Rodovia sem nome"}</strong><br>
-        KM: ${point.km}<br>
+      <div id="street-polyline-history-tooltip" class="street-polyline-history-tooltip"
+        style="min-width:220px;font-size:12px;line-height:1.45;color:#111827!important;background:#fff!important;color-scheme:light;-webkit-text-fill-color:#111827!important">
+        <strong style="color:#020617!important;-webkit-text-fill-color:#020617!important">${point.rodovia || "Rodovia sem nome"}</strong><br>
+        <span style="color:#111827!important;-webkit-text-fill-color:#111827!important">KM: ${point.km}<br>
         Sentido: ${point.sentido || "-"}<br>
         Raio: ${point.raio} m<br>
         Nome: ${point.nome || "-"}<br>
         Latitude: ${Number(point.latitude).toFixed(6)}<br>
-        Longitude: ${Number(point.longitude).toFixed(6)}
+        Longitude: ${Number(point.longitude).toFixed(6)}</span>
       </div>
     `);
     this.historyInfoWindow.open({ map: this.map });
   }
 
+  cancelHistoryTooltipClose() {
+    if (this.historyTooltipCloseTimer != null) {
+      window.clearTimeout(this.historyTooltipCloseTimer);
+      this.historyTooltipCloseTimer = null;
+    }
+  }
+
+  scheduleHistoryTooltipClose() {
+    this.cancelHistoryTooltipClose();
+    this.historyTooltipCloseTimer = window.setTimeout(() => {
+      this.historyTooltipCloseTimer = null;
+      this.historyInfoWindow?.close();
+    }, 280);
+  }
+
   closeHistoryTooltip() {
+    this.cancelHistoryTooltipClose();
     this.historyInfoWindow?.close();
   }
 

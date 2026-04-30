@@ -152,3 +152,14 @@
   min-height: 0;
   background: #0b1220;
 }
+
+/* InfoWindow do histórico importado: tema escuro da página / prefers-color-scheme força texto claro no bubble branco do Maps */
+.gm-style .gm-style-iw-d {
+  color-scheme: light !important;
+}
+
+.gm-style .street-polyline-history-tooltip,
+.gm-style .street-polyline-history-tooltip * {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}

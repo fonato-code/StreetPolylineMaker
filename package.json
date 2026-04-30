@@ -1,0 +1,7 @@
+{
+  "name": "street-polyline-maker",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes serve . --listen 5173"
+  }
+}
