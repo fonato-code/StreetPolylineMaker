@@ -1,0 +1,62 @@
+.modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.modal-wide {
+  width: min(1180px, calc(100vw - 32px));
+}
+
+.modal::backdrop {
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  z-index: 1;
+}
+
+.modal-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.modal > .field,
+.modal > .row {
+  margin: 16px;
+}
+
+.modal-maps-body {
+  padding: 0 16px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.modal-maps-body .field {
+  margin: 0;
+}
+
+.modal-maps-body .row {
+  margin: 0;
+}
+
+.modal-lead {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.map-status-hint {
+  margin-top: 10px;
+}

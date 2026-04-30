@@ -1,0 +1,132 @@
+.routes-modal-body {
+  padding: 0;
+  display: block;
+}
+
+.routes-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: rgba(11, 18, 34, 0.6);
+}
+
+.routes-help-popover {
+  max-width: min(440px, calc(100vw - 32px));
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.routes-help-popover::backdrop {
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.routes-help-popover-text {
+  margin: 0;
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+
+.routes-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.routes-table th,
+.routes-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.routes-table th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.routes-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.routes-table tr.routes-row-active {
+  background: rgba(56, 189, 248, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.routes-table input[type="text"],
+.routes-table input[type="number"],
+.routes-table select {
+  min-width: 0;
+  width: 100%;
+  max-width: 200px;
+  height: 36px;
+  font-size: 0.86rem;
+}
+
+.routes-table .routes-col-km input[type="number"] {
+  max-width: 110px;
+}
+
+.routes-table .routes-col-export select {
+  max-width: 140px;
+}
+
+.routes-table .routes-col-km-fim input[type="number"]:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.routes-row-pending .routes-pending-cell {
+  padding: 12px 10px;
+  background: rgba(56, 189, 248, 0.06);
+  border-top: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.routes-pending-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.routes-pending-inner label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.routes-pending-inner input[type="text"] {
+  flex: 1 1 160px;
+  max-width: 280px;
+  height: 36px;
+}
+
+.routes-pending-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.routes-table .routes-col-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.routes-table .routes-col-actions .routes-action-icon {
+  width: 34px;
+  height: 34px;
+  font-size: 0.88rem;
+}
+
+.routes-col-points {
+  color: var(--muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

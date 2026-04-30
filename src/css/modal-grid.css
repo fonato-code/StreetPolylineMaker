@@ -1,0 +1,25 @@
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.modal-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  text-align: center;
+}

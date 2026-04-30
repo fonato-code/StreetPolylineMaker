@@ -1,0 +1,129 @@
+.row,
+.panel-header,
+.modal-header,
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.toggle-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.shortcut-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shortcut-list p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.shortcut-list span {
+  text-align: right;
+}
+
+.btn,
+.icon-btn {
+  border: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+}
+
+.btn:hover,
+.icon-btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn-icon {
+  font-size: 0.95rem;
+}
+
+.btn-label {
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04111f;
+}
+
+.btn-secondary {
+  background: rgba(30, 41, 59, 0.88);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: rgba(30, 41, 59, 0.9);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  font-size: 1rem;
+}
+
+.hint,
+.toolbar-label,
+.metric-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.hint {
+  margin-top: 10px;
+  line-height: 1.35;
+}
+
+.error-text {
+  color: #f87171 !important;
+}
