@@ -46,6 +46,7 @@ class StreetPolylineMakerApp {
     this.routes = [];
     this.activeRouteId = null;
     this.pendingNewRouteFromNav = false;
+    this._initialRoadPromptDone = false;
 
     this.elements = {
       appShell: document.getElementById("appShell"),
@@ -235,6 +236,35 @@ class StreetPolylineMakerApp {
 
   getRouteById(id) {
     return this.routes.find((r) => r.id === id) || null;
+  }
+
+  hasRegisteredRoad() {
+    return this.routes.some((r) => (r.roadName || "").trim().length > 0);
+  }
+
+  promptInitialRoadIfNeeded() {
+    if (!this.mapReady || this._initialRoadPromptDone) {
+      return;
+    }
+    if (this.hasRegisteredRoad()) {
+      this._initialRoadPromptDone = true;
+      return;
+    }
+    this._initialRoadPromptDone = true;
+    this.pendingNewRouteFromNav = false;
+    this.commitActiveRouteToState();
+    if (this.routes.length === 0) {
+      const r = this.createEmptyRoute();
+      this.routes = [r];
+      this.activeRouteId = r.id;
+      this.anchorPoints = [];
+    }
+    const active = this.getActiveRoute();
+    if (active) {
+      this.applyRouteToForm(active);
+    }
+    this.openRoutesManager({ focusFirstField: true });
+    this.setMapStatus("Informe a rodovia do trecho no modal para iniciar o cadastro.");
   }
 
   getActiveStartKm() {
@@ -934,6 +964,7 @@ class StreetPolylineMakerApp {
     if (this.mapReady) {
       this.setMapStatus("O mapa ja esta carregado.");
       this.finalizeMapsSession(apiKey);
+      queueMicrotask(() => this.promptInitialRoadIfNeeded());
       return true;
     }
 
@@ -949,6 +980,7 @@ class StreetPolylineMakerApp {
     }
     this.renderRoutesTable();
     this.finalizeMapsSession(apiKey);
+    queueMicrotask(() => this.promptInitialRoadIfNeeded());
     return true;
   }
 
@@ -2248,6 +2280,12 @@ class StreetPolylineMakerApp {
   }
 
   clearAll() {
+    if (!window.confirm(
+      "Isso apaga todas as rodovias e trechos, todos os pontos marcados, importados, pre-visualizacao e o rascunho salvo no navegador. Nao da para desfazer. Deseja continuar?",
+    )) {
+      return;
+    }
+
     this.closeStreetViewPanel();
     this.streetViewFocusedIndex = null;
     this.anchorsOnMapVisible = true;
@@ -2264,13 +2302,12 @@ class StreetPolylineMakerApp {
     this.importedCircles = [];
     this.anchorPoints = [];
     this.lastCoordinate = null;
-    const active = this.getActiveRoute();
-    if (active) {
-      active.anchors = [];
-      this.currentKm = active.startKm;
-    } else {
-      this.currentKm = 0;
-    }
+
+    const fresh = this.createEmptyRoute();
+    this.routes = [fresh];
+    this.activeRouteId = fresh.id;
+    this.currentKm = this.getActiveStartKm();
+
     this.elements.sqlOutput.value = "";
     this.elements.jsonOutput.value = "";
     this.persistDraft();
@@ -2279,7 +2316,7 @@ class StreetPolylineMakerApp {
     this.updateAnchorsToggleUi();
     this.renderRoutesTable();
     this.syncConfigBarFromActiveRoute();
-    this.setMapStatus("Trecho ativo limpo. Importados removidos. Historico local atualizado.");
+    this.setMapStatus("Todas as rodovias foram removidas. Rascunho reiniciado.");
   }
 
   syncPreviewRadius() {
