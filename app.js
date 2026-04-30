@@ -41,7 +41,7 @@ class StreetPolylineMakerApp {
       startKm: document.getElementById("startKm"),
       displayName: document.getElementById("displayName"),
       defaultRadius: document.getElementById("defaultRadius"),
-      exportStepKm: document.getElementById("exportStepKm"),
+      exportStepM: document.getElementById("exportStepM"),
       autoHideAnchors: document.getElementById("autoHideAnchors"),
       exportData: document.getElementById("exportData"),
       toggleExportPreview: document.getElementById("toggleExportPreview"),
@@ -70,6 +70,8 @@ class StreetPolylineMakerApp {
     this.attachUiEvents();
     this.restorePreferences();
     this.updateSummary();
+    this.updateExportPreviewToggleUi();
+    this.updateImportedToggleUi();
   }
 
   attachUiEvents() {
@@ -91,7 +93,7 @@ class StreetPolylineMakerApp {
     this.elements.importFile.addEventListener("change", (event) => this.loadImportFile(event));
     this.elements.startKm.addEventListener("change", () => this.handleKmInputChange());
     this.elements.defaultRadius.addEventListener("change", () => this.syncPreviewRadius());
-    this.elements.exportStepKm.addEventListener("change", () => this.refreshExportPreview());
+    this.elements.exportStepM.addEventListener("change", () => this.refreshExportPreview());
     this.elements.copySql.addEventListener("click", () => this.copyOutput(this.elements.sqlOutput));
     this.elements.copyJson.addEventListener("click", () => this.copyOutput(this.elements.jsonOutput));
 
@@ -532,7 +534,7 @@ class StreetPolylineMakerApp {
       return;
     }
 
-    const exportPoints = this.generateExportPoints(this.anchorPoints, this.parseNumber(this.elements.exportStepKm.value, 0.1));
+    const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters());
     const payload = this.buildExportPayload(exportPoints);
     this.elements.sqlOutput.value = this.buildSql(exportPoints);
     this.elements.jsonOutput.value = JSON.stringify(payload, null, 2);
@@ -547,9 +549,7 @@ class StreetPolylineMakerApp {
     }
 
     this.exportPreviewVisible = !this.exportPreviewVisible;
-    this.elements.toggleExportPreview.querySelector(".btn-label").textContent = this.exportPreviewVisible
-      ? "Esconder pre-visualizacao"
-      : "Exibir pre-visualizacao";
+    this.updateExportPreviewToggleUi();
     this.refreshExportPreview();
     this.setMapStatus(this.exportPreviewVisible ? "Pre-visualizacao da exportacao exibida." : "Pre-visualizacao da exportacao ocultada.");
   }
@@ -561,8 +561,10 @@ class StreetPolylineMakerApp {
       return;
     }
 
-    const exportPoints = this.generateExportPoints(this.anchorPoints, this.parseNumber(this.elements.exportStepKm.value, 0.1));
-    exportPoints.forEach((point, index) => this.renderExportPreviewPoint(point, index));
+    const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters());
+    const stepM = this.getExportStepMeters();
+    const pointsPerKm = Math.max(1, Math.round(1000 / stepM));
+    exportPoints.forEach((point, index) => this.renderExportPreviewPoint(point, index, pointsPerKm));
   }
 
   clearExportPreview() {
@@ -572,9 +574,10 @@ class StreetPolylineMakerApp {
     this.previewExportCircles = [];
   }
 
-  renderExportPreviewPoint(point, index) {
-    const isKilometerPoint = index % 10 === 0;
+  renderExportPreviewPoint(point, index, pointsPerKm) {
+    const isKilometerPoint = index % pointsPerKm === 0;
     const color = isKilometerPoint ? "#f59e0b" : "#38bdf8";
+    const previewRadiusM = this.getPreviewCircleRadiusMeters(this.getExportStepMeters());
     const position = { lat: Number(point.latitude), lng: Number(point.longitude) };
     const marker = new this.google.maps.Marker({
       position,
@@ -599,7 +602,7 @@ class StreetPolylineMakerApp {
       fillColor: color,
       fillOpacity: isKilometerPoint ? 0.1 : 0.03,
       center: position,
-      radius: Number(point.raio) || this.getDefaultRadius(),
+      radius: previewRadiusM,
       map: this.map,
       clickable: false,
     });
@@ -638,8 +641,9 @@ class StreetPolylineMakerApp {
     return index % keepEvery === 0;
   }
 
-  generateExportPoints(anchorPoints, stepKm) {
-    const safeStepKm = stepKm > 0 ? stepKm : 0.1;
+  generateExportPoints(anchorPoints, stepMeters) {
+    const safeStepM = stepMeters > 0 ? stepMeters : 100;
+    const safeStepKm = safeStepM / 1000;
     const points = [];
     let nextId = 1;
     const firstKm = this.parseNumber(anchorPoints[0].km, 0);
@@ -722,7 +726,8 @@ class StreetPolylineMakerApp {
       createdAt: new Date().toISOString(),
       roadName: this.elements.roadName.value.trim(),
       startKm: this.parseNumber(this.elements.startKm.value, 0),
-      stepKm: this.parseNumber(this.elements.exportStepKm.value, 0.1),
+      stepKm: this.getExportStepMeters() / 1000,
+      stepM: this.getExportStepMeters(),
       anchors: this.anchorPoints,
       exportPoints,
     };
@@ -897,6 +902,8 @@ class StreetPolylineMakerApp {
     if (points[0]) {
       this.map.panTo({ lat: Number(points[0].latitude), lng: Number(points[0].longitude) });
     }
+
+    this.updateImportedToggleUi();
   }
 
   replaceAnchorPoints(points) {
@@ -959,7 +966,13 @@ class StreetPolylineMakerApp {
       this.elements.displayName.value = draft.meta.displayName || "";
       this.elements.defaultRadius.value = draft.meta.defaultRadius || 500;
       this.elements.startKm.value = this.parseNumber(draft.meta.startKm, 0).toFixed(3);
-      this.elements.exportStepKm.value = this.parseNumber(draft.meta.exportStepKm, 0.1).toFixed(3);
+      if (draft.meta.exportStepM != null && draft.meta.exportStepM !== "") {
+        this.elements.exportStepM.value = String(Math.round(this.parseNumber(draft.meta.exportStepM, 100)));
+      } else if (draft.meta.exportStepKm != null) {
+        this.elements.exportStepM.value = String(Math.round(this.parseNumber(draft.meta.exportStepKm, 0.1) * 1000));
+      } else {
+        this.elements.exportStepM.value = "100";
+      }
     }
 
     const anchors = Array.isArray(draft.anchors) ? draft.anchors : [];
@@ -986,7 +999,7 @@ class StreetPolylineMakerApp {
         displayName: this.elements.displayName.value.trim(),
         defaultRadius: this.getDefaultRadius(),
         startKm: this.parseNumber(this.elements.startKm.value, 0),
-        exportStepKm: this.parseNumber(this.elements.exportStepKm.value, 0.1),
+        exportStepM: this.getExportStepMeters(),
       },
       anchors: this.anchorPoints,
     };
@@ -1007,6 +1020,7 @@ class StreetPolylineMakerApp {
       this.closeHistoryTooltip();
     }
     this.setMapStatus(this.importedVisible ? "Importados exibidos." : "Importados ocultos.");
+    this.updateImportedToggleUi();
   }
 
   clearAll() {
@@ -1028,6 +1042,7 @@ class StreetPolylineMakerApp {
     this.elements.jsonOutput.value = "";
     localStorage.removeItem(STORAGE_KEYS.draft);
     this.updateSummary();
+    this.updateImportedToggleUi();
     this.setMapStatus("Mapa e historico local limpos.");
   }
 
@@ -1125,6 +1140,51 @@ class StreetPolylineMakerApp {
 
   getDefaultRadius() {
     return this.parseNumber(this.elements.defaultRadius.value, 500);
+  }
+
+  getExportStepMeters() {
+    const meters = this.parseNumber(this.elements.exportStepM.value, 100);
+    return meters > 0 ? meters : 100;
+  }
+
+  getPreviewCircleRadiusMeters(stepMeters) {
+    const step = stepMeters > 0 ? stepMeters : 100;
+    return Math.max(10, Math.round(step / 2));
+  }
+
+  updateExportPreviewToggleUi() {
+    const button = this.elements.toggleExportPreview;
+    if (!button) {
+      return;
+    }
+
+    button.classList.toggle("nav-icon-btn--on", this.exportPreviewVisible);
+    button.setAttribute("aria-pressed", String(this.exportPreviewVisible));
+    const icon = button.querySelector("i");
+    if (icon) {
+      icon.className = this.exportPreviewVisible ? "fas fa-eye" : "fas fa-eye-slash";
+    }
+    button.title = this.exportPreviewVisible ? "Ocultar pre-visualizacao" : "Exibir pre-visualizacao";
+  }
+
+  updateImportedToggleUi() {
+    const button = this.elements.toggleImported;
+    if (!button) {
+      return;
+    }
+
+    const hasImports = this.importedMarkers.length > 0;
+    button.disabled = !hasImports;
+    if (!hasImports) {
+      button.classList.remove("nav-icon-btn--on");
+      button.setAttribute("aria-pressed", "false");
+      button.title = "Nenhum ponto importado";
+      return;
+    }
+
+    button.classList.toggle("nav-icon-btn--on", this.importedVisible);
+    button.setAttribute("aria-pressed", String(this.importedVisible));
+    button.title = this.importedVisible ? "Ocultar importados" : "Exibir importados";
   }
 
   fromLatLng(latLng) {
