@@ -29,7 +29,6 @@ class StreetPolylineMakerApp {
     this.historyInfoWindow = null;
     this.lastCoordinate = null;
     this.currentKm = 0;
-    this.kmManuallyChanged = false;
     this.importedVisible = true;
     this.exportPreviewVisible = false;
     this.radiusPresets = [50, 100, 150, 250, 500];
@@ -138,7 +137,6 @@ class StreetPolylineMakerApp {
     this.elements.importJson.addEventListener("click", () => this.importFromInputs(false));
     this.elements.useJsonAsHistory.addEventListener("click", () => this.importFromInputs(true));
     this.elements.importFile.addEventListener("change", (event) => this.loadImportFile(event));
-    this.elements.startKm.addEventListener("change", () => this.handleKmInputChange());
     this.elements.defaultRadius.addEventListener("change", () => this.syncPreviewRadius());
     this.elements.exportStepM.addEventListener("change", () => this.refreshExportPreview());
     this.elements.copySql.addEventListener("click", () => this.copyOutput(this.elements.sqlOutput));
@@ -175,10 +173,6 @@ class StreetPolylineMakerApp {
     this.elements.openRoutesModal.addEventListener("click", () => this.openRoutesManager());
     this.elements.closeRoutesModal.addEventListener("click", () => this.elements.routesModal.close());
     this.elements.addRouteBtn.addEventListener("click", () => this.addNewRoute());
-    [this.elements.roadName, this.elements.displayName].forEach((el) => {
-      el.addEventListener("change", () => this.syncFormMetadataToActiveRoute());
-    });
-    this.elements.direction.addEventListener("change", () => this.syncFormMetadataToActiveRoute());
 
     this.elements.routesModal.addEventListener("click", (event) => {
       if (event.target === this.elements.routesModal) {
@@ -199,6 +193,7 @@ class StreetPolylineMakerApp {
       displayName: "",
       startKm: 0,
       defaultRadius: 500,
+      exportMode: "normal",
       anchors: [],
     };
   }
@@ -211,6 +206,7 @@ class StreetPolylineMakerApp {
       displayName: raw.displayName ?? raw.nome ?? "",
       startKm: this.parseNumber(raw.startKm, 0),
       defaultRadius: this.parseNumber(raw.defaultRadius, 500),
+      exportMode: raw.exportMode || "normal",
       anchors: this.cloneAnchors(raw.anchors || []),
     };
   }
@@ -221,6 +217,94 @@ class StreetPolylineMakerApp {
 
   getRouteById(id) {
     return this.routes.find((r) => r.id === id) || null;
+  }
+
+  getActiveStartKm() {
+    const route = this.getActiveRoute();
+    return route ? this.parseNumber(route.startKm, 0) : 0;
+  }
+
+  syncConfigBarFromRoute(route) {
+    if (!route) {
+      return;
+    }
+    this.elements.roadName.value = route.roadName || "";
+    this.elements.direction.value = route.direction === "" ? "" : (route.direction || "N");
+    this.elements.displayName.value = route.displayName || "";
+    this.elements.startKm.value = Number(route.startKm ?? 0).toFixed(3);
+  }
+
+  syncConfigBarFromActiveRoute() {
+    this.syncConfigBarFromRoute(this.getActiveRoute());
+  }
+
+  syncActiveAnchorsWithRouteMetadata(route) {
+    if (!route || route.id !== this.activeRouteId) {
+      return;
+    }
+    this.anchorPoints.forEach((p) => {
+      p.rodovia = route.roadName || "";
+      p.sentido = route.direction ?? "";
+      p.nome = route.displayName || "";
+    });
+    this.refreshAnchorMarkerMeta();
+    this.syncConfigBarFromActiveRoute();
+  }
+
+  recomputeAnchorKmsAlongPolyline(anchors, startKm) {
+    if (!anchors?.length) {
+      return;
+    }
+    const base = this.parseNumber(startKm, 0);
+    anchors[0].km = this.roundKm(base).toFixed(3);
+    for (let i = 1; i < anchors.length; i += 1) {
+      const prev = anchors[i - 1];
+      const curr = anchors[i];
+      const deltaKm = this.distanceMeters(prev, curr) / 1000;
+      const nextKm = this.roundKm(this.parseNumber(prev.km, 0) + deltaKm);
+      curr.km = nextKm.toFixed(3);
+    }
+  }
+
+  applyStartKmToRoute(route, rawKm) {
+    if (!route) {
+      return;
+    }
+    route.startKm = this.parseNumber(rawKm, route.startKm);
+    const targets = route.id === this.activeRouteId ? this.anchorPoints : route.anchors;
+    if (targets.length > 0) {
+      this.recomputeAnchorKmsAlongPolyline(targets, route.startKm);
+    }
+    if (route.id === this.activeRouteId) {
+      this.refreshAnchorMarkerMeta();
+      this.refreshExportPreview();
+    }
+    this.persistDraft();
+    this.updateSummary();
+    this.renderRoutesTable();
+    this.syncConfigBarFromActiveRoute();
+  }
+
+  refreshAnchorMarkerMeta() {
+    if (!this.mapReady) {
+      return;
+    }
+    this.anchorPoints.forEach((point, index) => {
+      const marker = this.anchorMarkers[index];
+      const circle = this.anchorCircles[index];
+      if (!marker) {
+        return;
+      }
+      const color = this.colorForPoint(point.km);
+      marker.setTitle(`${point.rodovia || "Rodovia"} ${point.sentido} km ${point.km}`);
+      marker.setIcon(this.markerIcon(color));
+      if (circle) {
+        circle.setOptions({
+          fillColor: color,
+          strokeColor: "#111827",
+        });
+      }
+    });
   }
 
   applyMetaExportStep(meta) {
@@ -235,11 +319,10 @@ class StreetPolylineMakerApp {
   }
 
   applyRouteToForm(route) {
-    this.elements.roadName.value = route.roadName || "";
-    this.elements.direction.value = route.direction === "" ? "" : (route.direction || "N");
-    this.elements.displayName.value = route.displayName || "";
-    this.elements.defaultRadius.value = route.defaultRadius || 500;
-    this.elements.startKm.value = Number(route.startKm ?? 0).toFixed(3);
+    this.syncConfigBarFromRoute(route);
+    if (route) {
+      this.elements.defaultRadius.value = route.defaultRadius || 500;
+    }
   }
 
   hydrateRoutesFromLocalStorage() {
@@ -249,6 +332,7 @@ class StreetPolylineMakerApp {
       this.routes = [r];
       this.activeRouteId = r.id;
       this.anchorPoints = [];
+      this.applyRouteToForm(r);
       return;
     }
 
@@ -260,6 +344,7 @@ class StreetPolylineMakerApp {
       this.routes = [r];
       this.activeRouteId = r.id;
       this.anchorPoints = [];
+      this.applyRouteToForm(r);
     }
   }
 
@@ -273,7 +358,13 @@ class StreetPolylineMakerApp {
       const active = this.getActiveRoute();
       this.anchorPoints = this.cloneAnchors(active.anchors);
       this.applyRouteToForm(active);
-      this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+      if (this.anchorPoints.length > 0) {
+        this.recomputeAnchorKmsAlongPolyline(this.anchorPoints, active.startKm);
+        active.anchors = this.cloneAnchors(this.anchorPoints);
+      }
+      this.currentKm = this.anchorPoints.length
+        ? this.parseNumber(this.anchorPoints[this.anchorPoints.length - 1].km, 0)
+        : this.getActiveStartKm();
       this.lastCoordinate = null;
       return;
     }
@@ -294,6 +385,10 @@ class StreetPolylineMakerApp {
     this.activeRouteId = r.id;
     this.anchorPoints = this.cloneAnchors(r.anchors);
     this.applyRouteToForm(r);
+    if (this.anchorPoints.length > 0) {
+      this.recomputeAnchorKmsAlongPolyline(this.anchorPoints, r.startKm);
+      r.anchors = this.cloneAnchors(this.anchorPoints);
+    }
     const lastPt = this.anchorPoints[this.anchorPoints.length - 1];
     if (lastPt) {
       this.lastCoordinate = { lat: lastPt.latitude, lng: lastPt.longitude };
@@ -310,23 +405,10 @@ class StreetPolylineMakerApp {
       return;
     }
     route.anchors = this.cloneAnchors(this.anchorPoints);
-    route.startKm = this.parseNumber(this.elements.startKm.value, 0);
     route.defaultRadius = this.getDefaultRadius();
-    route.roadName = this.elements.roadName.value.trim();
-    route.direction = this.elements.direction.value;
-    route.displayName = this.elements.displayName.value.trim();
-  }
-
-  syncFormMetadataToActiveRoute() {
-    const route = this.getActiveRoute();
-    if (!route) {
-      return;
+    if (this.anchorPoints.length > 0) {
+      route.startKm = this.parseNumber(this.anchorPoints[0].km, route.startKm);
     }
-    route.roadName = this.elements.roadName.value.trim();
-    route.direction = this.elements.direction.value;
-    route.displayName = this.elements.displayName.value.trim();
-    this.persistDraft();
-    this.renderRoutesTable();
   }
 
   switchActiveRoute(routeId) {
@@ -342,13 +424,16 @@ class StreetPolylineMakerApp {
       this.replaceAnchorPoints(snapshot);
     } else {
       this.anchorPoints = snapshot;
+      if (this.anchorPoints.length > 0) {
+        this.recomputeAnchorKmsAlongPolyline(this.anchorPoints, route.startKm);
+      }
       const lastPt = this.anchorPoints[this.anchorPoints.length - 1];
       if (lastPt) {
         this.lastCoordinate = { lat: lastPt.latitude, lng: lastPt.longitude };
         this.currentKm = this.parseNumber(lastPt.km, 0);
       } else {
         this.lastCoordinate = null;
-        this.currentKm = route.startKm;
+        this.currentKm = this.parseNumber(route.startKm, 0);
       }
     }
     this.streetViewFocusedIndex = null;
@@ -385,10 +470,9 @@ class StreetPolylineMakerApp {
       inpRoad.placeholder = "BR-116";
       inpRoad.addEventListener("change", () => {
         route.roadName = inpRoad.value.trim();
-        if (route.id === this.activeRouteId) {
-          this.elements.roadName.value = route.roadName;
-        }
+        this.syncActiveAnchorsWithRouteMetadata(route);
         this.persistDraft();
+        this.renderRoutesTable();
       });
       tdRoad.appendChild(inpRoad);
 
@@ -403,10 +487,9 @@ class StreetPolylineMakerApp {
       sel.value = route.direction === "" ? "" : (route.direction || "N");
       sel.addEventListener("change", () => {
         route.direction = sel.value;
-        if (route.id === this.activeRouteId) {
-          this.elements.direction.value = route.direction;
-        }
+        this.syncActiveAnchorsWithRouteMetadata(route);
         this.persistDraft();
+        this.renderRoutesTable();
       });
       tdDir.appendChild(sel);
 
@@ -417,12 +500,42 @@ class StreetPolylineMakerApp {
       inpName.placeholder = "Descricao";
       inpName.addEventListener("change", () => {
         route.displayName = inpName.value.trim();
-        if (route.id === this.activeRouteId) {
-          this.elements.displayName.value = route.displayName;
-        }
+        this.syncActiveAnchorsWithRouteMetadata(route);
         this.persistDraft();
+        this.renderRoutesTable();
       });
       tdName.appendChild(inpName);
+
+      const tdKm = document.createElement("td");
+      tdKm.className = "routes-col-km";
+      const inpKm = document.createElement("input");
+      inpKm.type = "number";
+      inpKm.step = "0.001";
+      inpKm.value = Number(route.startKm ?? 0).toFixed(3);
+      inpKm.addEventListener("change", () => {
+        this.applyStartKmToRoute(route, inpKm.value);
+      });
+      tdKm.appendChild(inpKm);
+
+      const tdExp = document.createElement("td");
+      tdExp.className = "routes-col-export";
+      const selExp = document.createElement("select");
+      [["normal", "Normal"]].forEach(([val, label]) => {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        selExp.appendChild(opt);
+      });
+      selExp.value = route.exportMode || "normal";
+      selExp.addEventListener("change", () => {
+        route.exportMode = selExp.value;
+        this.persistDraft();
+        if (route.id === this.activeRouteId) {
+          this.refreshExportPreview();
+        }
+        this.renderRoutesTable();
+      });
+      tdExp.appendChild(selExp);
 
       const tdPts = document.createElement("td");
       tdPts.className = "routes-col-points";
@@ -471,6 +584,8 @@ class StreetPolylineMakerApp {
       tr.appendChild(tdRoad);
       tr.appendChild(tdDir);
       tr.appendChild(tdName);
+      tr.appendChild(tdKm);
+      tr.appendChild(tdExp);
       tr.appendChild(tdPts);
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
@@ -999,13 +1114,6 @@ class StreetPolylineMakerApp {
     this.syncPreviewRadius();
   }
 
-  handleKmInputChange() {
-    this.kmManuallyChanged = true;
-    this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
-    this.updateSummary();
-    this.refreshExportPreview();
-  }
-
   handleAnchorOrOverlayClick(point, latLng) {
     if (this.streetViewVisible) {
       const focusIndex = this.anchorPoints.findIndex((p) => p.id === point.id);
@@ -1027,10 +1135,11 @@ class StreetPolylineMakerApp {
     }
 
     const coordinate = this.fromLatLng(latLng);
-    if (!this.kmManuallyChanged && this.lastCoordinate) {
+    const active = this.getActiveRoute();
+    if (this.anchorPoints.length === 0) {
+      this.currentKm = this.roundKm(this.getActiveStartKm());
+    } else if (this.lastCoordinate) {
       this.currentKm = this.roundKm(this.currentKm + (this.distanceMeters(this.lastCoordinate, coordinate) / 1000));
-    } else if (this.anchorPoints.length === 0) {
-      this.currentKm = this.roundKm(this.parseNumber(this.elements.startKm.value, 0));
     }
 
     const point = {
@@ -1038,16 +1147,18 @@ class StreetPolylineMakerApp {
       longitude: coordinate.lng,
       latitude: coordinate.lat,
       km: this.currentKm.toFixed(3),
-      rodovia: this.elements.roadName.value.trim(),
+      rodovia: (active?.roadName ?? "").trim(),
       raio: this.getDefaultRadius(),
-      sentido: this.elements.direction.value,
-      nome: this.elements.displayName.value.trim(),
+      sentido: active?.direction ?? "",
+      nome: (active?.displayName ?? "").trim(),
     };
 
     this.anchorPoints.push(point);
+    if (active && this.anchorPoints.length === 1) {
+      active.startKm = this.parseNumber(point.km, active.startKm);
+    }
     this.renderAnchor(point);
     this.lastCoordinate = coordinate;
-    this.kmManuallyChanged = false;
     this.persistDraft();
     this.updateSummary();
     this.refreshExportPreview();
@@ -1066,14 +1177,12 @@ class StreetPolylineMakerApp {
     if (!this.lastCoordinate) {
       this.elements.cursorDistance.textContent = "0 m";
       this.previewLine.setPath([coordinate, coordinate]);
-      this.elements.nextKm.textContent = this.parseNumber(this.elements.startKm.value, 0).toFixed(3);
+      this.elements.nextKm.textContent = this.getActiveStartKm().toFixed(3);
       return;
     }
 
     const distance = this.distanceMeters(this.lastCoordinate, coordinate);
-    const nextKm = this.kmManuallyChanged
-      ? this.parseNumber(this.elements.startKm.value, 0)
-      : this.roundKm(this.currentKm + (distance / 1000));
+    const nextKm = this.roundKm(this.currentKm + (distance / 1000));
 
     this.previewLine.setPath([this.lastCoordinate, coordinate]);
     this.elements.cursorDistance.textContent = `${distance.toFixed(1)} m`;
@@ -1136,10 +1245,9 @@ class StreetPolylineMakerApp {
     if (lastPoint) {
       this.lastCoordinate = { lat: lastPoint.latitude, lng: lastPoint.longitude };
       this.currentKm = this.parseNumber(lastPoint.km, 0);
-      this.elements.startKm.value = Number(lastPoint.km).toFixed(3);
     } else {
       this.lastCoordinate = null;
-      this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+      this.currentKm = this.getActiveStartKm();
     }
 
     this.persistDraft();
@@ -1147,6 +1255,7 @@ class StreetPolylineMakerApp {
     this.updateSummary();
     this.refreshExportPreview();
     this.updateAnchorsToggleUi();
+    this.syncConfigBarFromActiveRoute();
   }
 
   exportAll() {
@@ -1162,7 +1271,7 @@ class StreetPolylineMakerApp {
     const flatPoints = [];
     const sqlChunks = [];
     routesWithData.forEach((route) => {
-      const exportPoints = this.generateExportPoints(route.anchors, stepM);
+      const exportPoints = this.generateExportPoints(route.anchors, stepM, route.exportMode || "normal");
       const renumbered = exportPoints.map((p) => {
         const row = { ...p, id: globalId++ };
         flatPoints.push(row);
@@ -1199,7 +1308,8 @@ class StreetPolylineMakerApp {
       return;
     }
 
-    const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters());
+    const exportMode = this.getActiveRoute()?.exportMode || "normal";
+    const exportPoints = this.generateExportPoints(this.anchorPoints, this.getExportStepMeters(), exportMode);
     this.previewExportPoints = exportPoints;
     const stepM = this.getExportStepMeters();
     const pointsPerKm = Math.max(1, Math.round(1000 / stepM));
@@ -1416,7 +1526,7 @@ class StreetPolylineMakerApp {
     return index % keepEvery === 0;
   }
 
-  generateExportPoints(anchorPoints, stepMeters) {
+  generateExportPoints(anchorPoints, stepMeters, _exportMode = "normal") {
     const safeStepM = stepMeters > 0 ? stepMeters : 100;
     const safeStepKm = safeStepM / 1000;
     const points = [];
@@ -1510,7 +1620,8 @@ class StreetPolylineMakerApp {
         startKm: route.startKm,
         defaultRadius: route.defaultRadius,
         anchors: this.cloneAnchors(route.anchors),
-        exportPoints: this.generateExportPoints(route.anchors, stepM),
+        exportMode: route.exportMode || "normal",
+        exportPoints: this.generateExportPoints(route.anchors, stepM, route.exportMode || "normal"),
       })),
       exportPointsFlat: flatPoints,
     };
@@ -1598,7 +1709,6 @@ class StreetPolylineMakerApp {
 
     if (asEditableHistory) {
       this.replaceAnchorPoints(anchors);
-      this.persistDraft();
       this.updateSummary();
       this.elements.importModal.close();
       this.refreshExportPreview();
@@ -1736,45 +1846,75 @@ class StreetPolylineMakerApp {
     this.anchorCircles = [];
     this.anchorPoints = [];
 
+    const active = this.getActiveRoute();
+    const metaR = active
+      ? {
+        roadName: active.roadName || "",
+        direction: active.direction ?? "",
+        displayName: active.displayName || "",
+      }
+      : {
+        roadName: this.elements.roadName.value.trim(),
+        direction: this.elements.direction.value,
+        displayName: this.elements.displayName.value.trim(),
+      };
+
     points.forEach((point, index) => {
+      const rodoviaRaw = point.rodovia != null ? String(point.rodovia).trim() : "";
+      const nomeRaw = point.nome != null ? String(point.nome).trim() : "";
       const normalized = {
         id: index + 1,
         longitude: Number(point.longitude),
         latitude: Number(point.latitude),
         km: this.parseNumber(point.km, 0).toFixed(3),
-        rodovia: point.rodovia || this.elements.roadName.value.trim(),
+        rodovia: rodoviaRaw || metaR.roadName,
         raio: Number(point.raio) || this.getDefaultRadius(),
-        sentido: point.sentido || this.elements.direction.value,
-        nome: point.nome || this.elements.displayName.value.trim(),
+        sentido: point.sentido !== undefined && point.sentido !== null
+          ? point.sentido
+          : metaR.direction,
+        nome: nomeRaw || metaR.displayName,
       };
       this.anchorPoints.push(normalized);
       this.renderAnchor(normalized);
     });
 
+    if (active && this.anchorPoints.length > 0) {
+      const f = this.anchorPoints[0];
+      if (f.rodovia && String(f.rodovia).trim()) {
+        active.roadName = String(f.rodovia).trim();
+      }
+      if (f.sentido !== undefined && f.sentido !== null) {
+        active.direction = f.sentido;
+      }
+      if (f.nome != null && String(f.nome).trim()) {
+        active.displayName = String(f.nome).trim();
+      }
+      active.startKm = this.parseNumber(f.km, active.startKm);
+      this.recomputeAnchorKmsAlongPolyline(this.anchorPoints, active.startKm);
+    }
+
     const lastPoint = this.anchorPoints[this.anchorPoints.length - 1];
     if (lastPoint) {
-      this.elements.roadName.value = lastPoint.rodovia || this.elements.roadName.value;
-      this.elements.direction.value = lastPoint.sentido || this.elements.direction.value;
-      this.elements.displayName.value = lastPoint.nome || this.elements.displayName.value;
       this.elements.defaultRadius.value = Number(lastPoint.raio) || this.getDefaultRadius();
-      this.elements.startKm.value = Number(lastPoint.km).toFixed(3);
-      this.currentKm = Number(lastPoint.km);
+      this.currentKm = this.parseNumber(lastPoint.km, 0);
       this.lastCoordinate = { lat: lastPoint.latitude, lng: lastPoint.longitude };
       if (this.mapReady) {
         this.map.panTo(this.lastCoordinate);
       }
+    } else {
+      this.lastCoordinate = null;
+      this.currentKm = active ? this.getActiveStartKm() : 0;
     }
 
-    const active = this.getActiveRoute();
     if (active) {
       active.anchors = this.cloneAnchors(this.anchorPoints);
-      active.startKm = this.parseNumber(this.elements.startKm.value, 0);
       active.defaultRadius = this.getDefaultRadius();
-      active.roadName = this.elements.roadName.value.trim();
-      active.direction = this.elements.direction.value;
-      active.displayName = this.elements.displayName.value.trim();
+      if (this.anchorPoints.length > 0) {
+        active.startKm = this.parseNumber(this.anchorPoints[0].km, active.startKm);
+      }
     }
 
+    this.syncConfigBarFromActiveRoute();
     this.streetViewFocusedIndex = null;
     this.refreshExportPreview();
     this.updateAnchorsToggleUi();
@@ -1825,6 +1965,7 @@ class StreetPolylineMakerApp {
         displayName: r.displayName,
         startKm: r.startKm,
         defaultRadius: r.defaultRadius,
+        exportMode: r.exportMode || "normal",
         anchors: this.cloneAnchors(r.anchors),
       })),
     };
@@ -1869,9 +2010,8 @@ class StreetPolylineMakerApp {
     if (active) {
       active.anchors = [];
       this.currentKm = active.startKm;
-      this.elements.startKm.value = Number(active.startKm).toFixed(3);
     } else {
-      this.currentKm = this.parseNumber(this.elements.startKm.value, 0);
+      this.currentKm = 0;
     }
     this.elements.sqlOutput.value = "";
     this.elements.jsonOutput.value = "";
@@ -1880,6 +2020,7 @@ class StreetPolylineMakerApp {
     this.updateImportedToggleUi();
     this.updateAnchorsToggleUi();
     this.renderRoutesTable();
+    this.syncConfigBarFromActiveRoute();
     this.setMapStatus("Trecho ativo limpo. Importados removidos. Historico local atualizado.");
   }
 
@@ -1920,32 +2061,47 @@ class StreetPolylineMakerApp {
   }
 
   createAnchorFromHistory(point) {
+    const active = this.getActiveRoute();
+    const coordinate = { lat: Number(point.latitude), lng: Number(point.longitude) };
+    let nextKm;
+    if (this.anchorPoints.length === 0) {
+      nextKm = this.roundKm(this.getActiveStartKm());
+    } else {
+      const ref = this.lastCoordinate || {
+        lat: this.anchorPoints[this.anchorPoints.length - 1].latitude,
+        lng: this.anchorPoints[this.anchorPoints.length - 1].longitude,
+      };
+      nextKm = this.roundKm(
+        this.parseNumber(this.anchorPoints[this.anchorPoints.length - 1].km, 0)
+        + (this.distanceMeters(ref, coordinate) / 1000),
+      );
+    }
+
     const normalized = {
       id: this.anchorPoints.length + 1,
-      longitude: Number(point.longitude),
-      latitude: Number(point.latitude),
-      km: this.parseNumber(point.km, 0).toFixed(3),
-      rodovia: point.rodovia || this.elements.roadName.value.trim(),
+      longitude: coordinate.lng,
+      latitude: coordinate.lat,
+      km: nextKm.toFixed(3),
+      rodovia: (active?.roadName ?? "").trim(),
       raio: Number(point.raio) || this.getDefaultRadius(),
-      sentido: point.sentido || this.elements.direction.value,
-      nome: point.nome || this.elements.displayName.value.trim(),
+      sentido: active?.direction ?? "",
+      nome: (active?.displayName ?? "").trim(),
     };
 
-    this.elements.roadName.value = normalized.rodovia;
-    this.elements.direction.value = normalized.sentido;
-    this.elements.displayName.value = normalized.nome;
     this.elements.defaultRadius.value = normalized.raio;
-    this.elements.startKm.value = normalized.km;
 
     this.anchorPoints.push(normalized);
+    if (active && this.anchorPoints.length === 1) {
+      active.startKm = this.parseNumber(normalized.km, active.startKm);
+    }
     this.renderAnchor(normalized);
-    this.lastCoordinate = { lat: normalized.latitude, lng: normalized.longitude };
-    this.currentKm = Number(normalized.km);
-    this.kmManuallyChanged = false;
+    this.lastCoordinate = coordinate;
+    this.currentKm = nextKm;
     this.persistDraft();
     this.updateSummary();
     this.refreshExportPreview();
     this.updateAnchorsToggleUi();
+    this.syncConfigBarFromActiveRoute();
     this.setMapStatus(`Ponto do historico convertido para edicao no km ${normalized.km}.`);
   }
 
@@ -1955,7 +2111,7 @@ class StreetPolylineMakerApp {
 
     if (this.anchorPoints.length === 0) {
       this.elements.summaryText.textContent = `Nenhum ponto marcado no trecho ativo${trecho}.`;
-      this.elements.nextKm.textContent = this.parseNumber(this.elements.startKm.value, 0).toFixed(3);
+      this.elements.nextKm.textContent = this.getActiveStartKm().toFixed(3);
       return;
     }
 

@@ -600,6 +600,18 @@ textarea {
   margin-top: 10px;
 }
 
+.config-bar-display[readonly],
+.config-bar-display:disabled {
+  cursor: default;
+  opacity: 0.92;
+  background: rgba(15, 23, 42, 0.55);
+  color: var(--text);
+}
+
+.config-bar-display:disabled {
+  opacity: 0.88;
+}
+
 .routes-modal-body {
   padding: 0 16px 20px;
   display: grid;
@@ -648,12 +660,21 @@ textarea {
 }
 
 .routes-table input[type="text"],
+.routes-table input[type="number"],
 .routes-table select {
   min-width: 0;
   width: 100%;
   max-width: 200px;
   height: 36px;
   font-size: 0.86rem;
+}
+
+.routes-table .routes-col-km input[type="number"] {
+  max-width: 110px;
+}
+
+.routes-table .routes-col-export select {
+  max-width: 140px;
 }
 
 .routes-table .routes-col-actions {
