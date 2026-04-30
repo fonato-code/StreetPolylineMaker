@@ -36,10 +36,6 @@
             <span>Ocultar automaticamente pontos antigos</span>
           </label>
           <div class="stack">
-            <button id="exportData" class="btn btn-primary" type="button">
-              <i class="fas fa-file-export btn-icon" aria-hidden="true"></i>
-              <span class="btn-label">Exportar SQL + JSON</span>
-            </button>
             <button id="openImportModal" class="btn btn-secondary" type="button">
               <i class="fas fa-file-import btn-icon" aria-hidden="true"></i>
               <span class="btn-label">Importar JSON</span>
@@ -74,28 +70,32 @@
 
     <main class="workspace">
       <nav class="config-bar" aria-label="Configuracao">
-        <label class="compact-field">
-          <span>Rodovia</span>
-          <input id="roadName" class="config-bar-display" type="text" placeholder="BR-116" readonly title="Edite no modal Rodovias">
-        </label>
-        <label class="compact-field compact-field-small">
-          <span>Sentido</span>
-          <select id="direction" class="config-bar-display" disabled title="Edite no modal Rodovias">
-            <option value="">Todos</option>
-            <option value="N">Norte</option>
-            <option value="S">Sul</option>
-            <option value="L">Leste</option>
-            <option value="O">Oeste</option>
-          </select>
-        </label>
-        <label class="compact-field compact-field-small">
-          <span>KM inicio</span>
-          <input id="startKm" class="config-bar-display" type="text" inputmode="decimal" value="0.000" readonly title="KM do primeiro marcador; edite no modal Rodovias">
-        </label>
-        <label class="compact-field">
-          <span>Nome</span>
-          <input id="displayName" class="config-bar-display" type="text" placeholder="Descricao" readonly title="Edite no modal Rodovias">
-        </label>
+        <div class="config-bar-strip">
+          <div class="config-bar-info" title="Edite no botao Editar ou em Rodovias na barra lateral">
+            <div class="config-bar-info-head">
+              <span class="toolbar-label">Trecho ativo</span>
+              <span id="configExportBadge" class="config-export-badge" title="Formato de calculo da exportacao deste trecho">Normal</span>
+            </div>
+            <p class="config-bar-line" id="configBarLine">
+              <strong id="configRoad">—</strong>
+              <span class="config-bar-dot" aria-hidden="true">·</span>
+              <span id="configDirection">—</span>
+              <span class="config-bar-dot" aria-hidden="true">·</span>
+              <span class="config-bar-km">km <span id="configStartKm">0.000</span></span>
+              <span class="config-bar-dot" aria-hidden="true">·</span>
+              <span id="configDisplayName">—</span>
+            </p>
+          </div>
+          <div class="config-bar-strip-actions">
+            <button id="openRoutesEdit" class="btn btn-secondary config-bar-edit-btn" type="button" title="Editar trechos e KMs">
+              <i class="fas fa-pen btn-icon" aria-hidden="true"></i>
+              <span class="btn-label">Editar</span>
+            </button>
+            <button id="openRoutesNew" class="nav-icon-btn config-bar-icon-btn" type="button" title="Nova rodovia (obrigatorio informar a rodovia)" aria-label="Nova rodovia">
+              <i class="fas fa-plus" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
         <label class="compact-field compact-field-small">
           <span>Raio (m)</span>
           <input id="defaultRadius" type="number" step="1" value="500">
@@ -113,6 +113,9 @@
           </button>
           <button id="toggleAnchors" class="nav-icon-btn" type="button" title="Nenhuma ancora no mapa" aria-label="Marcadores ancora no mapa" aria-pressed="true" disabled>
             <i class="fas fa-map-pin" aria-hidden="true"></i>
+          </button>
+          <button id="exportData" class="nav-icon-btn" type="button" title="Exportar SQL + JSON" aria-label="Exportar SQL + JSON">
+            <i class="fas fa-file-export" aria-hidden="true"></i>
           </button>
           <button id="clearAll" class="nav-icon-btn nav-icon-btn--danger" type="button" title="Limpar tudo" aria-label="Limpar mapa e historico local">
             <i class="fas fa-trash-alt" aria-hidden="true"></i>
@@ -199,6 +202,9 @@
     <div class="modal-header">
       <h2>Rodovias e trechos</h2>
       <div class="modal-header-trailing">
+        <button type="button" id="routesModalInfoBtn" class="icon-btn" popovertarget="routesModalHelp" title="Ajuda" aria-label="Ajuda sobre rodovias e trechos">
+          <i class="fas fa-info-circle" aria-hidden="true"></i>
+        </button>
         <button id="addRouteBtn" class="btn btn-secondary" type="button">
           <i class="fas fa-plus btn-icon" aria-hidden="true"></i>
           <span class="btn-label">Nova rodovia</span>
@@ -209,7 +215,6 @@
       </div>
     </div>
     <div class="routes-modal-body">
-      <p class="hint routes-modal-hint">Edite Rodovia, Sentido, Nome, <strong>KM inicio</strong> (recalcula os KMs ao longo do trecho pela distancia entre marcadores) e modo de exportacao. Use o icone de <strong>lapis</strong> para marcar pontos no mapa naquele trecho.</p>
       <div class="routes-table-wrap">
         <table class="routes-table" aria-label="Lista de rodovias">
           <thead>
@@ -218,6 +223,7 @@
               <th scope="col">Sentido</th>
               <th scope="col">Nome</th>
               <th scope="col">KM inicio</th>
+              <th scope="col" class="routes-col-km-fim-head">KM fim</th>
               <th scope="col">Exportacao</th>
               <th scope="col">Pontos</th>
               <th scope="col">Acoes</th>
@@ -228,6 +234,13 @@
       </div>
     </div>
   </dialog>
+
+  <div id="routesModalHelp" class="routes-help-popover" popover>
+    <p class="hint routes-help-popover-text">
+      Edite Rodovia, Sentido, Nome, <strong>KM inicio</strong> (recalcula os KMs reais pela distancia entre marcadores), modo <strong>Secundario</strong> (KM fim + interpolacao para export/SQL) e modo de exportacao.
+      <strong>Nova rodovia</strong> exige preencher o campo Rodovia antes de criar. Use o icone de <strong>lapis</strong> para marcar pontos no mapa naquele trecho.
+    </p>
+  </div>
 
   <dialog id="exportModal" class="modal modal-wide">
     <div class="modal-header">

@@ -132,13 +132,95 @@ textarea {
 
 .config-bar {
   display: grid;
-  grid-template-columns: minmax(130px, 1.2fr) 120px 110px minmax(130px, 1fr) 110px 120px auto;
+  grid-template-columns: minmax(180px, 2.4fr) 110px 120px auto;
   gap: 10px;
   align-items: end;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   background: rgba(15, 23, 42, 0.88);
   backdrop-filter: blur(12px);
+}
+
+.config-bar-strip {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.config-bar-strip-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.config-bar-icon-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 0.95rem;
+}
+
+.config-bar-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.config-bar-info-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.config-export-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+}
+
+.config-export-badge--secondary {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+}
+
+.config-bar-line {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.config-bar-line strong {
+  font-weight: 600;
+}
+
+.config-bar-dot {
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.config-bar-km {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.config-bar-edit-btn {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 12px;
 }
 
 .config-bar-tools {
@@ -600,34 +682,36 @@ textarea {
   margin-top: 10px;
 }
 
-.config-bar-display[readonly],
-.config-bar-display:disabled {
-  cursor: default;
-  opacity: 0.92;
-  background: rgba(15, 23, 42, 0.55);
-  color: var(--text);
-}
-
-.config-bar-display:disabled {
-  opacity: 0.88;
-}
-
 .routes-modal-body {
-  padding: 0 16px 20px;
-  display: grid;
-  gap: 12px;
-}
-
-.routes-modal-hint {
-  margin: 0;
-  line-height: 1.4;
+  padding: 0;
+  display: block;
 }
 
 .routes-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
   background: rgba(11, 18, 34, 0.6);
+}
+
+.routes-help-popover {
+  max-width: min(440px, calc(100vw - 32px));
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.routes-help-popover::backdrop {
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.routes-help-popover-text {
+  margin: 0;
+  line-height: 1.45;
+  font-size: 0.88rem;
 }
 
 .routes-table {
@@ -677,6 +761,41 @@ textarea {
   max-width: 140px;
 }
 
+.routes-table .routes-col-km-fim input[type="number"]:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.routes-row-pending .routes-pending-cell {
+  padding: 12px 10px;
+  background: rgba(56, 189, 248, 0.06);
+  border-top: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.routes-pending-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.routes-pending-inner label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.routes-pending-inner input[type="text"] {
+  flex: 1 1 160px;
+  max-width: 280px;
+  height: 36px;
+}
+
+.routes-pending-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .routes-table .routes-col-actions {
   display: flex;
   align-items: center;
@@ -724,7 +843,7 @@ kbd {
 
 @media (max-width: 1120px) {
   .config-bar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) 110px 120px;
   }
 
   .config-bar-tools {
@@ -778,7 +897,7 @@ kbd {
   }
 
   .config-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) 110px;
   }
 
   .modal-grid {
