@@ -106,6 +106,9 @@
           <button id="toggleImported" class="nav-icon-btn" type="button" title="Nenhum ponto importado" aria-label="Camada de pontos importados" aria-pressed="false" disabled>
             <i class="fas fa-layer-group" aria-hidden="true"></i>
           </button>
+          <button id="toggleAnchors" class="nav-icon-btn" type="button" title="Nenhuma ancora no mapa" aria-label="Marcadores ancora no mapa" aria-pressed="true" disabled>
+            <i class="fas fa-map-pin" aria-hidden="true"></i>
+          </button>
           <button id="clearAll" class="nav-icon-btn nav-icon-btn--danger" type="button" title="Limpar tudo" aria-label="Limpar mapa e historico local">
             <i class="fas fa-trash-alt" aria-hidden="true"></i>
           </button>
@@ -128,8 +131,35 @@
               <strong id="nextKm">0.000</strong>
             </div>
           </div>
+          <div class="map-toolbar-controls">
+            <label class="toolbar-map-type">
+              <span class="metric-label">Visao do mapa</span>
+              <select id="mapTypeSelect" class="toolbar-select" title="Tipo de mapa" aria-label="Tipo de mapa" disabled>
+                <option value="roadmap">Mapa</option>
+                <option value="satellite">Satelite</option>
+                <option value="hybrid">Hibrido</option>
+                <option value="terrain">Terreno</option>
+              </select>
+            </label>
+            <button id="toggleStreetView" class="btn btn-secondary map-toolbar-street-btn" type="button" title="Street View no ultimo ponto ou centro do mapa" aria-label="Street View" aria-pressed="false" disabled>
+              <i class="fas fa-street-view btn-icon" aria-hidden="true"></i>
+              <span class="btn-label">Street View</span>
+            </button>
+          </div>
         </div>
-        <div id="map" class="map-canvas" aria-label="Mapa"></div>
+        <div id="mapStage" class="map-stage">
+          <div id="map" class="map-canvas" aria-label="Mapa"></div>
+          <div id="streetViewResizeHandle" class="street-view-resize-handle" role="separator" aria-orientation="horizontal" aria-hidden="true" hidden></div>
+          <div id="streetViewPanel" class="street-view-panel" hidden>
+            <div class="street-view-header">
+              <span class="street-view-title">Street View</span>
+              <button id="closeStreetView" class="icon-btn" type="button" title="Fechar Street View" aria-label="Fechar Street View">
+                <i class="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div id="streetViewPano" class="street-view-canvas" aria-label="Panorama Street View"></div>
+          </div>
+        </div>
       </section>
     </main>
   </div>

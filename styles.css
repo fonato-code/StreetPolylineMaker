@@ -41,6 +41,11 @@ body.is-resizing {
   user-select: none;
 }
 
+body.is-resizing-street {
+  cursor: row-resize;
+  user-select: none;
+}
+
 button,
 input,
 select,
@@ -381,6 +386,7 @@ textarea {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
+  min-width: 0;
   background: rgba(15, 23, 42, 0.7);
 }
 
@@ -389,6 +395,123 @@ textarea {
   border-bottom: 1px solid var(--line);
   background: rgba(15, 23, 42, 0.86);
   backdrop-filter: blur(10px);
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.map-toolbar-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.toolbar-map-type {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toolbar-map-type .metric-label {
+  line-height: 1;
+}
+
+.toolbar-select {
+  min-width: 118px;
+  height: 36px;
+  padding: 6px 8px;
+  font-size: 0.88rem;
+}
+
+.map-toolbar-street-btn {
+  min-height: 36px;
+  padding: 7px 12px;
+}
+
+.map-toolbar-street-btn.nav-icon-btn--on {
+  color: var(--accent);
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.map-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+
+.map-stage .map-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.map-stage--split .map-canvas {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.street-view-resize-handle {
+  display: none;
+  flex: 0 0 6px;
+  cursor: row-resize;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background:
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.12), rgba(56, 189, 248, 0.35), rgba(148, 163, 184, 0.12));
+}
+
+.map-stage--split .street-view-resize-handle {
+  display: block;
+}
+
+.street-view-resize-handle:hover {
+  background:
+    linear-gradient(to bottom, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0.55), rgba(56, 189, 248, 0.2));
+}
+
+.street-view-panel {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: #0b1220;
+  min-height: 0;
+}
+
+.street-view-panel[hidden] {
+  display: none !important;
+}
+
+.map-stage--split .street-view-panel {
+  flex: 0 0 var(--street-view-panel-height, 320px);
+  flex-shrink: 0;
+  min-height: 120px;
+  max-height: none;
+}
+
+.street-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.street-view-title {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.street-view-canvas {
+  flex: 1;
+  min-height: 120px;
+  background: #000;
 }
 
 .toolbar-value {

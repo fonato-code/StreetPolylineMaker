@@ -27,6 +27,12 @@ class StreetPolylineMakerApp {
     this.rotationDrag = { active: false, lastX: 0, wasGestureHandling: "auto" };
     this.sidebarResize = { active: false, startX: 0, startWidth: 320 };
     this.mapsApiModalLocked = false;
+    this.streetViewService = null;
+    this.streetViewPanorama = null;
+    this.streetViewVisible = false;
+    this.streetViewFocusedIndex = null;
+    this.streetViewResize = { active: false, startY: 0, startHeight: 0 };
+    this.anchorsOnMapVisible = true;
 
     this.elements = {
       appShell: document.getElementById("appShell"),
@@ -52,6 +58,7 @@ class StreetPolylineMakerApp {
       openImportModal: document.getElementById("openImportModal"),
       loadHistory: document.getElementById("loadHistory"),
       toggleImported: document.getElementById("toggleImported"),
+      toggleAnchors: document.getElementById("toggleAnchors"),
       clearAll: document.getElementById("clearAll"),
       exportModal: document.getElementById("exportModal"),
       closeExportModal: document.getElementById("closeExportModal"),
@@ -69,6 +76,13 @@ class StreetPolylineMakerApp {
       copySql: document.getElementById("copySql"),
       copyJson: document.getElementById("copyJson"),
       map: document.getElementById("map"),
+      mapStage: document.getElementById("mapStage"),
+      mapTypeSelect: document.getElementById("mapTypeSelect"),
+      toggleStreetView: document.getElementById("toggleStreetView"),
+      closeStreetView: document.getElementById("closeStreetView"),
+      streetViewPanel: document.getElementById("streetViewPanel"),
+      streetViewPano: document.getElementById("streetViewPano"),
+      streetViewResizeHandle: document.getElementById("streetViewResizeHandle"),
     };
 
     this.attachUiEvents();
@@ -76,6 +90,7 @@ class StreetPolylineMakerApp {
     this.updateSummary();
     this.updateExportPreviewToggleUi();
     this.updateImportedToggleUi();
+    this.updateAnchorsToggleUi();
     void this.bootstrapMapsFlow();
   }
 
@@ -98,6 +113,7 @@ class StreetPolylineMakerApp {
     this.elements.closeExportModal.addEventListener("click", () => this.elements.exportModal.close());
     this.elements.loadHistory.addEventListener("click", () => this.loadDraftFromStorage());
     this.elements.toggleImported.addEventListener("click", () => this.toggleImportedVisibility());
+    this.elements.toggleAnchors.addEventListener("click", () => this.toggleAnchorsOnMap());
     this.elements.clearAll.addEventListener("click", () => this.clearAll());
     this.elements.autoHideAnchors.addEventListener("change", () => this.updateAnchorVisibility());
     this.elements.importJson.addEventListener("click", () => this.importFromInputs(false));
@@ -108,10 +124,20 @@ class StreetPolylineMakerApp {
     this.elements.exportStepM.addEventListener("change", () => this.refreshExportPreview());
     this.elements.copySql.addEventListener("click", () => this.copyOutput(this.elements.sqlOutput));
     this.elements.copyJson.addEventListener("click", () => this.copyOutput(this.elements.jsonOutput));
+    this.elements.mapTypeSelect.addEventListener("change", () => this.applyMapTypeFromSelect());
+    this.elements.toggleStreetView.addEventListener("click", () => this.toggleStreetViewPanel());
+    this.elements.closeStreetView.addEventListener("click", () => this.closeStreetViewPanel());
+    this.elements.streetViewResizeHandle.addEventListener("mousedown", (event) => this.startStreetViewResize(event));
 
     document.addEventListener("keydown", (event) => this.handleKeydown(event));
-    document.addEventListener("mousemove", (event) => this.handleSidebarResize(event));
-    document.addEventListener("mouseup", () => this.stopSidebarResize());
+    document.addEventListener("mousemove", (event) => {
+      this.handleSidebarResize(event);
+      this.handleStreetViewResize(event);
+    });
+    document.addEventListener("mouseup", () => {
+      this.stopSidebarResize();
+      this.stopStreetViewResize();
+    });
 
     [this.elements.importModal, this.elements.exportModal].forEach((modal) => {
       modal.addEventListener("click", (event) => {
@@ -325,8 +351,130 @@ class StreetPolylineMakerApp {
     this.previewRadius.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
 
     this.historyInfoWindow = new this.google.maps.InfoWindow();
+    this.streetViewService = new this.google.maps.StreetViewService();
+    this.streetViewPanorama = null;
     this.attachRotationHandlers();
     this.mapReady = true;
+    this.elements.mapTypeSelect.disabled = false;
+    this.elements.toggleStreetView.disabled = false;
+    this.elements.mapTypeSelect.value = this.map.getMapTypeId();
+    this.updateStreetViewToggleUi();
+    this.updateAnchorsToggleUi();
+  }
+
+  applyMapTypeFromSelect() {
+    if (!this.mapReady) {
+      return;
+    }
+    const typeId = this.elements.mapTypeSelect.value;
+    if (typeId) {
+      this.map.setMapTypeId(typeId);
+    }
+  }
+
+  ensureStreetViewPanorama() {
+    if (!this.mapReady || this.streetViewPanorama) {
+      return;
+    }
+    this.streetViewPanorama = new this.google.maps.StreetViewPanorama(this.elements.streetViewPano, {
+      visible: false,
+      addressControl: true,
+      linksControl: true,
+      panControl: true,
+      enableCloseButton: false,
+      fullscreenControl: false,
+    });
+  }
+
+  applyStreetViewNear(location, options = {}) {
+    const focusIndexOpt = options.focusIndex;
+    if (!this.mapReady || !this.streetViewService) {
+      return;
+    }
+    this.ensureStreetViewPanorama();
+    this.streetViewService.getPanorama({ location, radius: 100 }, (data, status) => {
+      if (!this.mapReady || !this.streetViewPanorama) {
+        return;
+      }
+      if (status !== this.google.maps.StreetViewStatus.OK) {
+        this.setMapStatus("Street View indisponivel perto deste ponto. Mova o mapa ou marque um ponto na via.", true);
+        return;
+      }
+      this.streetViewPanorama.setPano(data.location.pano);
+      this.streetViewPanorama.setPov({ heading: 0, pitch: 0 });
+      this.streetViewPanorama.setVisible(true);
+      this.elements.streetViewPanel.hidden = false;
+      this.elements.streetViewResizeHandle.hidden = false;
+      this.elements.mapStage.classList.add("map-stage--split");
+      const panelHeight = this.elements.mapStage.style.getPropertyValue("--street-view-panel-height").trim();
+      if (!panelHeight) {
+        const stage = this.elements.mapStage;
+        const h = Math.round(stage.clientHeight * 0.38);
+        this.elements.mapStage.style.setProperty("--street-view-panel-height", `${Math.max(160, Math.min(h, 520))}px`);
+      }
+      this.streetViewVisible = true;
+      if (typeof focusIndexOpt === "number" && focusIndexOpt >= 0 && focusIndexOpt < this.anchorPoints.length) {
+        this.streetViewFocusedIndex = focusIndexOpt;
+      } else {
+        this.streetViewFocusedIndex = null;
+      }
+      this.refreshAnchorVisuals();
+      this.updateStreetViewToggleUi();
+      window.requestAnimationFrame(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+        this.google.maps.event.trigger(this.streetViewPanorama, "resize");
+      });
+    });
+  }
+
+  openStreetViewPanel() {
+    if (!this.mapReady || !this.streetViewService) {
+      this.setMapStatus("Carregue o mapa antes de usar o Street View.", true);
+      return;
+    }
+    const location = this.lastCoordinate
+      ? { lat: this.lastCoordinate.lat, lng: this.lastCoordinate.lng }
+      : this.map.getCenter();
+    this.applyStreetViewNear(location);
+  }
+
+  closeStreetViewPanel() {
+    if (this.streetViewPanorama) {
+      this.streetViewPanorama.setVisible(false);
+    }
+    this.elements.streetViewPanel.hidden = true;
+    this.elements.streetViewResizeHandle.hidden = true;
+    this.elements.mapStage.classList.remove("map-stage--split");
+    this.streetViewVisible = false;
+    this.streetViewFocusedIndex = null;
+    this.refreshAnchorVisuals();
+    this.updateStreetViewToggleUi();
+    if (this.mapReady) {
+      window.requestAnimationFrame(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+      });
+    }
+  }
+
+  toggleStreetViewPanel() {
+    if (!this.mapReady) {
+      this.setMapStatus("Carregue o mapa antes de usar o Street View.", true);
+      return;
+    }
+    if (this.streetViewVisible) {
+      this.closeStreetViewPanel();
+    } else {
+      this.openStreetViewPanel();
+    }
+  }
+
+  updateStreetViewToggleUi() {
+    const button = this.elements.toggleStreetView;
+    if (!button) {
+      return;
+    }
+    button.classList.toggle("nav-icon-btn--on", this.streetViewVisible);
+    button.setAttribute("aria-pressed", String(this.streetViewVisible));
   }
 
   attachRotationHandlers() {
@@ -412,6 +560,50 @@ class StreetPolylineMakerApp {
     }
   }
 
+  startStreetViewResize(event) {
+    if (!this.streetViewVisible) {
+      return;
+    }
+
+    this.streetViewResize.active = true;
+    this.streetViewResize.startY = event.clientY;
+    this.streetViewResize.startHeight = this.elements.streetViewPanel.getBoundingClientRect().height;
+    document.body.classList.add("is-resizing-street");
+    event.preventDefault();
+  }
+
+  handleStreetViewResize(event) {
+    if (!this.streetViewResize.active) {
+      return;
+    }
+
+    const stage = this.elements.mapStage;
+    const rect = stage.getBoundingClientRect();
+    const handleHeight = 6;
+    const mapMin = 120;
+    const panelMin = 120;
+    const maxPanel = rect.height - mapMin - handleHeight;
+    const delta = event.clientY - this.streetViewResize.startY;
+    let next = this.streetViewResize.startHeight - delta;
+    next = Math.max(panelMin, Math.min(maxPanel, next));
+    stage.style.setProperty("--street-view-panel-height", `${Math.round(next)}px`);
+    if (this.mapReady) {
+      this.google.maps.event.trigger(this.map, "resize");
+      if (this.streetViewPanorama) {
+        this.google.maps.event.trigger(this.streetViewPanorama, "resize");
+      }
+    }
+  }
+
+  stopStreetViewResize() {
+    if (!this.streetViewResize.active) {
+      return;
+    }
+
+    this.streetViewResize.active = false;
+    document.body.classList.remove("is-resizing-street");
+  }
+
   toggleSidebar() {
     const isCollapsed = this.elements.appShell.classList.toggle("sidebar-collapsed");
     this.elements.toggleSidebar.title = isCollapsed ? "Expandir painel" : "Minimizar painel";
@@ -466,8 +658,23 @@ class StreetPolylineMakerApp {
     this.refreshExportPreview();
   }
 
+  handleAnchorOrOverlayClick(point, latLng) {
+    if (this.streetViewVisible) {
+      const focusIndex = this.anchorPoints.findIndex((p) => p.id === point.id);
+      this.applyStreetViewNear(
+        { lat: point.latitude, lng: point.longitude },
+        { focusIndex: focusIndex >= 0 ? focusIndex : null },
+      );
+      return;
+    }
+    this.handleMapClick(latLng);
+  }
+
   handleMapClick(latLng) {
     if (!this.mapReady) {
+      return;
+    }
+    if (this.streetViewVisible) {
       return;
     }
 
@@ -496,6 +703,7 @@ class StreetPolylineMakerApp {
     this.persistDraft();
     this.updateSummary();
     this.refreshExportPreview();
+    this.updateAnchorsToggleUi();
   }
 
   handleMapMove(latLng) {
@@ -550,8 +758,8 @@ class StreetPolylineMakerApp {
     });
 
     circle.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
-    marker.addListener("click", (event) => this.handleMapClick(event.latLng));
-    circle.addListener("click", (event) => this.handleMapClick(event.latLng));
+    marker.addListener("click", (event) => this.handleAnchorOrOverlayClick(point, event.latLng));
+    circle.addListener("click", (event) => this.handleAnchorOrOverlayClick(point, event.latLng));
 
     this.anchorMarkers.push(marker);
     this.anchorCircles.push(circle);
@@ -572,6 +780,10 @@ class StreetPolylineMakerApp {
     this.anchorCircles.pop()?.setMap(null);
     this.anchorPoints.pop();
 
+    if (this.streetViewFocusedIndex != null && this.streetViewFocusedIndex >= this.anchorPoints.length) {
+      this.streetViewFocusedIndex = null;
+    }
+
     const lastPoint = this.anchorPoints[this.anchorPoints.length - 1] || null;
     if (lastPoint) {
       this.lastCoordinate = { lat: lastPoint.latitude, lng: lastPoint.longitude };
@@ -586,6 +798,7 @@ class StreetPolylineMakerApp {
     this.updateAnchorVisibility();
     this.updateSummary();
     this.refreshExportPreview();
+    this.updateAnchorsToggleUi();
   }
 
   exportAll() {
@@ -672,6 +885,12 @@ class StreetPolylineMakerApp {
   }
 
   updateAnchorVisibility() {
+    if (!this.anchorsOnMapVisible) {
+      this.anchorMarkers.forEach((marker) => marker.setVisible(false));
+      this.anchorCircles.forEach((circle) => circle.setVisible(false));
+      return;
+    }
+
     const shouldAutoHide = this.elements.autoHideAnchors.checked;
     const total = this.anchorMarkers.length;
     const keepEvery = this.getAnchorVisibilityStep(total);
@@ -683,6 +902,76 @@ class StreetPolylineMakerApp {
     this.anchorCircles.forEach((circle, index) => {
       circle.setVisible(!shouldAutoHide || this.shouldKeepAnchorVisible(index, total, keepEvery, keepTail));
     });
+    this.refreshAnchorVisuals();
+  }
+
+  refreshAnchorVisuals() {
+    if (!this.mapReady) {
+      return;
+    }
+    this.anchorPoints.forEach((point, index) => {
+      const marker = this.anchorMarkers[index];
+      const circle = this.anchorCircles[index];
+      if (!marker || !circle) {
+        return;
+      }
+      const color = this.colorForPoint(point.km);
+      const focused = this.streetViewVisible && index === this.streetViewFocusedIndex;
+      marker.setIcon(this.markerIcon(color, { focused }));
+      this.applyAnchorCircleStyle(circle, point, color, focused);
+    });
+  }
+
+  applyAnchorCircleStyle(circle, point, fillColor, focused) {
+    const radius = Number(point.raio) || this.getDefaultRadius();
+    circle.setOptions({
+      strokeColor: focused ? "#e0f2fe" : "#111827",
+      strokeOpacity: focused ? 1 : 0.58,
+      strokeWeight: focused ? 4 : 2,
+      fillColor,
+      fillOpacity: focused ? 0.28 : 0.14,
+      radius,
+    });
+  }
+
+  toggleAnchorsOnMap() {
+    if (!this.mapReady) {
+      this.setMapStatus("Carregue o mapa antes de alternar as ancoras.", true);
+      return;
+    }
+    if (this.anchorPoints.length === 0) {
+      this.setMapStatus("Nao ha ancoras no mapa.");
+      return;
+    }
+
+    this.anchorsOnMapVisible = !this.anchorsOnMapVisible;
+    this.updateAnchorVisibility();
+    this.updateAnchorsToggleUi();
+    this.setMapStatus(this.anchorsOnMapVisible ? "Ancoras exibidas no mapa." : "Ancoras ocultas no mapa.");
+  }
+
+  updateAnchorsToggleUi() {
+    const button = this.elements.toggleAnchors;
+    if (!button) {
+      return;
+    }
+
+    const hasAnchors = this.anchorPoints.length > 0;
+    button.disabled = !hasAnchors;
+    if (!hasAnchors) {
+      button.classList.remove("nav-icon-btn--on");
+      button.setAttribute("aria-pressed", "false");
+      button.title = "Nenhuma ancora no mapa";
+      return;
+    }
+
+    button.classList.toggle("nav-icon-btn--on", this.anchorsOnMapVisible);
+    button.setAttribute("aria-pressed", String(this.anchorsOnMapVisible));
+    const icon = button.querySelector("i");
+    if (icon) {
+      icon.className = this.anchorsOnMapVisible ? "fas fa-map-pin" : "fas fa-eye-slash";
+    }
+    button.title = this.anchorsOnMapVisible ? "Ocultar ancoras no mapa" : "Exibir ancoras no mapa";
   }
 
   getAnchorVisibilityStep(total) {
@@ -1002,7 +1291,9 @@ class StreetPolylineMakerApp {
       }
     }
 
+    this.streetViewFocusedIndex = null;
     this.refreshExportPreview();
+    this.updateAnchorsToggleUi();
   }
 
   loadDraftFromStorage() {
@@ -1084,6 +1375,9 @@ class StreetPolylineMakerApp {
   }
 
   clearAll() {
+    this.closeStreetViewPanel();
+    this.streetViewFocusedIndex = null;
+    this.anchorsOnMapVisible = true;
     this.anchorMarkers.forEach((marker) => marker.setMap(null));
     this.anchorCircles.forEach((circle) => circle.setMap(null));
     this.importedMarkers.forEach((marker) => marker.setMap(null));
@@ -1103,6 +1397,7 @@ class StreetPolylineMakerApp {
     localStorage.removeItem(STORAGE_KEYS.draft);
     this.updateSummary();
     this.updateImportedToggleUi();
+    this.updateAnchorsToggleUi();
     this.setMapStatus("Mapa e historico local limpos.");
   }
 
@@ -1168,6 +1463,7 @@ class StreetPolylineMakerApp {
     this.persistDraft();
     this.updateSummary();
     this.refreshExportPreview();
+    this.updateAnchorsToggleUi();
     this.setMapStatus(`Ponto do historico convertido para edicao no km ${normalized.km}.`);
   }
 
@@ -1298,14 +1594,15 @@ class StreetPolylineMakerApp {
     return Math.max(10, Math.round((stepKm * 1000) / 2));
   }
 
-  markerIcon(color) {
+  markerIcon(color, options = {}) {
+    const focused = options.focused === true;
     return {
       path: "M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z M -2,-30 a 2,2 0 1,1 4,0 2,2 0 1,1 -4,0",
       fillColor: color,
       fillOpacity: 1,
-      strokeColor: "#020617",
-      strokeWeight: 2,
-      scale: 1,
+      strokeColor: focused ? "#e0f2fe" : "#020617",
+      strokeWeight: focused ? 3 : 2,
+      scale: focused ? 1.18 : 1,
     };
   }
 
