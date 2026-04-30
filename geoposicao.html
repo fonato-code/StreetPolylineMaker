@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8" />
+	<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
+		integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+	<style>
+		html,
+		body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+		}
+
+		#map-canvas {
+			background: white;
+			display: block;
+			position: absolute;
+			height: auto;
+			bottom: 0;
+			top: 0;
+			left: 0;
+			right: 0;
+			transition: all .5s;
+			margin-top: 46px;
+			/* adjust top margin to your header height */
+		}
+
+		#map-canvas.mini {
+			margin-top: 500px;
+		}
+
+		#distancia {
+			position: fixed;
+			bottom: 20px;
+			z-index: 99;
+			background-color: #fff;
+			font-size: 30px;
+			font-family: sans-serif;
+			padding: 2px 10px;
+			opacity: 0.8;
+			left: 50%;
+			width: 400px;
+			transform: translate(-50%, 0);
+			text-align: right
+		}
+
+		#distancia span {
+			display: block;
+		}
+	</style>
+	<title>Mapeamento </title>
+</head>
+
+<body>
+	<div>
+
+		<span id="distancia">
+			<span id="t1"></span>
+			<span id="t2"></span>
+			<span id="t3"></span>
+		</span>
+	</div>
+	<div class="p-1">
+		<input class="form-control d-inline-block" type="number" id="id" placeholder="id" disabled style="width: 60px;">
+		<input class="form-control d-inline-block" type="number" id="longitude" placeholder="longitude"
+			style="width: 200px;" disabled>
+		<input class="form-control d-inline-block" type="number" id="latitude" placeholder="latitude"
+			style="width: 200px;" disabled>
+		<input class="form-control d-inline-block" type="text" id="rodovia" placeholder="rodovia" style="width: 100px;">
+		<select class="form-control  d-inline-block" id="sentido" style="width: 100px;">
+			<option value="N">Norte</option>
+			<option value="S">Sul</option>
+			<option value="O">Leste</option>
+			<option value="L">Oeste</option>
+		</select>
+		<input class="form-control d-inline-block" type="number" id="km" placeholder="km" style="width: 110px;">
+		<input class="form-control d-inline-block" type="number" id="raio" placeholder="raio" style="width: 100px;">
+		<input class="form-control d-inline-block" type="text" id="nome" placeholder="nome" style="width: 150px;">
+		<button style="margin-top: -5px;" class="btn btn-dark" type="button" id="novo">exportar</button>
+		<button style="margin-top: -5px;" class="btn btn-dark" type="button" id="historico">historico</button>
+		<button style="margin-top: -5px;" class="btn btn-dark" type="button" id="importar">importar</button>
+		<button style="margin-top: -5px;" class="btn btn-primary" type="button" id="abrir"
+			onclick="$('#map-canvas').toggleClass('mini')" title="mostrar esconder textarea">V</button>
+		<button style="margin-top: -5px;" class="btn btn-danger" type="button" id="mostrar-historico"
+			title="mostrar/ esconder historico">*</button>
+	</div>
+	<div>
+		<textarea wrap="off" class="form-control d-inline-block" id="banco"
+			style="width:49%; height: 450px; min-height: 450px;">Querie do banco </textarea>
+		<textarea wrap="off" class="form-control d-inline-block" id="referencia"
+			style="width:49%; height: 450px; min-height: 450px;">Objeto de referência</textarea>
+	</div>
+	<div class="content">
+		<div id="map-canvas" class="">&nbsp;</div>
+	</div>
+
+	<script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+	<script type="text/javascript" src="app.js"></script>
+	<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDluwn6kSg5qj9a-MmfbOqhujfonSRrLJg&callback=Iniciar"
+		async defer></script>
+</body>
+
+</html>
