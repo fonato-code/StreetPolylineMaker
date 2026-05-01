@@ -58,7 +58,15 @@ export class KmlExplorerApp {
 
     this.attachUiEvents();
     this.restoreKeyHint();
+    window.addEventListener("kml-explorer-sidebar-resize", () => this.triggerMapResize());
     void this.bootstrapMapsFlow();
+  }
+
+  triggerMapResize() {
+    if (!this.map || !this.google?.maps?.event) {
+      return;
+    }
+    this.google.maps.event.trigger(this.map, "resize");
   }
 
   attachUiEvents() {

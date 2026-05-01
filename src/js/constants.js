@@ -1,6 +1,7 @@
 export const STORAGE_KEYS = {
   apiKey: "streetPolylineMaker.apiKey",
   draft: "streetPolylineMaker.draft",
+  kmlExplorerSidebarWidthPx: "streetPolylineMaker.kmlExplorer.sidebarWidthPx",
 };
 
 export const DRAFT_VERSION = 2;

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="kml-explorer-page">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,33 +11,37 @@
   <link rel="stylesheet" href="./src/css/main.css">
   <link rel="stylesheet" href="./src/css/kml-explorer.css">
 </head>
-<body>
+<body class="kml-explorer-page">
   <div class="kml-explorer-shell">
-    <aside class="kml-explorer-sidebar" aria-label="Camadas KML">
-      <div class="kml-explorer-sidebar-header">
-        <nav class="kml-explorer-nav">
-          <a href="./index.html">← Voltar ao editor</a>
-        </nav>
-        <p class="eyebrow">StreetPolylineMaker</p>
-        <h1>Explorador KML / KMZ</h1>
-        <div class="kml-explorer-sidebar-tools">
-          <button id="openMapsApiModal" class="btn btn-secondary" type="button">
+    <header class="kml-explorer-topbar">
+      <div class="kml-explorer-topbar-main">
+        <div class="kml-explorer-topbar-brand">
+          <nav class="kml-explorer-nav">
+            <a href="./index.html">← Voltar ao editor</a>
+          </nav>
+          <p class="eyebrow">StreetPolylineMaker</p>
+          <h1 class="kml-explorer-topbar-title">Explorador KML / KMZ</h1>
+        </div>
+        <div class="kml-explorer-topbar-actions">
+          <button id="openMapsApiModal" class="btn btn-secondary kml-explorer-topbar-btn" type="button">
             <i class="fas fa-map-marked-alt btn-icon" aria-hidden="true"></i>
             <span class="btn-label">Google Maps</span>
           </button>
-        </div>
-        <label class="field" style="margin-top:12px">
-          <span>Arquivo KML ou KMZ</span>
-          <input id="kmlFileInput" type="file" accept=".kml,.kmz,application/vnd.google-earth.kmz,application/xml,text/xml">
-        </label>
-        <div class="stack" style="margin-top:10px">
-          <button id="kmlFitBoundsBtn" class="btn btn-ghost" type="button">
+          <label class="field kml-explorer-topbar-file">
+            <span>Arquivo KML ou KMZ</span>
+            <input id="kmlFileInput" type="file" accept=".kml,.kmz,application/vnd.google-earth.kmz,application/xml,text/xml">
+          </label>
+          <button id="kmlFitBoundsBtn" class="btn btn-ghost kml-explorer-topbar-btn" type="button">
             <i class="fas fa-expand-arrows-alt btn-icon" aria-hidden="true"></i>
             <span class="btn-label">Enquadrar visiveis</span>
           </button>
         </div>
       </div>
+      <p id="kmlExplorerStatus" class="kml-explorer-status hint">Informe a API key se solicitado.</p>
+    </header>
 
+    <div class="kml-explorer-body">
+    <aside class="kml-explorer-sidebar" aria-label="Camadas KML">
       <div class="kml-explorer-layer-panel">
         <div class="kml-layer-panel-toolbar">
           <h2 class="kml-layer-panel-title">Camadas</h2>
@@ -68,12 +72,20 @@
           </div>
         </div>
       </div>
-
-      <p id="kmlExplorerStatus" class="kml-explorer-status hint">Informe a API key se solicitado.</p>
     </aside>
+
+    <div
+      class="kml-explorer-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Ajustar largura do painel de camadas"
+      aria-valuemin="200"
+      aria-valuemax="900"
+      tabindex="0"></div>
 
     <div class="kml-explorer-map-wrap">
       <div id="kmlExplorerMap" class="kml-explorer-map" aria-label="Mapa"></div>
+    </div>
     </div>
   </div>
 
