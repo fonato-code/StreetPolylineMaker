@@ -2,6 +2,7 @@ import { STORAGE_KEYS, DRAFT_VERSION, generateRouteId } from "./constants.js";
 import { parseNumber, roundKm } from "./number-utils.js";
 import { distanceMeters, interpolatePoint, fromLatLng } from "./geo-utils.js";
 import { buildSql, cloneExportPoint } from "./export-sql.js";
+import { loadGoogleMapsApi } from "./google-maps-script.js";
 
 
 export class StreetPolylineMakerApp {
@@ -978,29 +979,8 @@ export class StreetPolylineMakerApp {
   }
 
   injectGoogleMaps(apiKey) {
-    return new Promise((resolve, reject) => {
-      if (window.google?.maps) {
-        this.google = window.google;
-        resolve();
-        return;
-      }
-
-      const callbackName = `initStreetPolylineMaker_${Date.now()}`;
-      window[callbackName] = () => {
-        this.google = window.google;
-        delete window[callbackName];
-        resolve();
-      };
-
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=${callbackName}`;
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => {
-        delete window[callbackName];
-        reject(new Error("script nao carregado"));
-      };
-      document.head.appendChild(script);
+    return loadGoogleMapsApi(apiKey).then((g) => {
+      this.google = g;
     });
   }
 

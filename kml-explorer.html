@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KML / KMZ — StreetPolylineMaker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/fontawesome5pro/fontawesome-pro-5.8.2.css">
+  <link rel="stylesheet" href="./src/css/main.css">
+  <link rel="stylesheet" href="./src/css/kml-explorer.css">
+</head>
+<body>
+  <div class="kml-explorer-shell">
+    <aside class="kml-explorer-sidebar" aria-label="Camadas KML">
+      <div class="kml-explorer-sidebar-header">
+        <nav class="kml-explorer-nav">
+          <a href="./index.html">← Voltar ao editor</a>
+        </nav>
+        <p class="eyebrow">StreetPolylineMaker</p>
+        <h1>Explorador KML / KMZ</h1>
+        <div class="kml-explorer-sidebar-tools">
+          <button id="openMapsApiModal" class="btn btn-secondary" type="button">
+            <i class="fas fa-map-marked-alt btn-icon" aria-hidden="true"></i>
+            <span class="btn-label">Google Maps</span>
+          </button>
+        </div>
+        <label class="field" style="margin-top:12px">
+          <span>Arquivo KML ou KMZ</span>
+          <input id="kmlFileInput" type="file" accept=".kml,.kmz,application/vnd.google-earth.kmz,application/xml,text/xml">
+        </label>
+        <div class="stack" style="margin-top:10px">
+          <button id="kmlFitBoundsBtn" class="btn btn-ghost" type="button">
+            <i class="fas fa-expand-arrows-alt btn-icon" aria-hidden="true"></i>
+            <span class="btn-label">Enquadrar visiveis</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="kml-explorer-layer-panel">
+        <div class="kml-layer-panel-toolbar">
+          <h2 class="kml-layer-panel-title">Camadas</h2>
+          <label class="kml-layer-filter-wrap">
+            <span class="sr-only">Filtrar</span>
+            <input
+              id="kmlLayerFilter"
+              type="search"
+              class="kml-layer-filter"
+              placeholder="Filtrar pastas ou placemarks..."
+              autocomplete="off">
+          </label>
+        </div>
+        <div class="kml-layer-panel-scroll">
+          <div id="kmlTreeRoot" class="kml-tree-root-inner hint">
+            Importe um arquivo para ver a arvore de pastas e placemarks.
+          </div>
+        </div>
+      </div>
+
+      <p id="kmlExplorerStatus" class="kml-explorer-status hint">Informe a API key se solicitado.</p>
+    </aside>
+
+    <div class="kml-explorer-map-wrap">
+      <div id="kmlExplorerMap" class="kml-explorer-map" aria-label="Mapa"></div>
+    </div>
+  </div>
+
+  <dialog id="mapsApiModal" class="modal">
+    <div class="modal-header">
+      <h2>Google Maps</h2>
+      <button id="closeMapsApiModal" class="icon-btn" type="button" title="Fechar" aria-label="Fechar" hidden>
+        <i class="fas fa-times" aria-hidden="true"></i>
+      </button>
+    </div>
+    <div class="modal-maps-body">
+      <p class="hint modal-lead">Informe a chave da API e carregue o mapa (a mesma sessao do editor quando possivel).</p>
+      <label class="field">
+        <span>API key</span>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="Chave da API do Google Maps">
+      </label>
+      <div class="row">
+        <button id="saveApiKey" class="btn btn-secondary" type="button">
+          <i class="fas fa-key btn-icon" aria-hidden="true"></i>
+          <span class="btn-label">Salvar</span>
+        </button>
+        <button id="loadMap" class="btn btn-primary" type="button">
+          <i class="fas fa-map-marked-alt btn-icon" aria-hidden="true"></i>
+          <span class="btn-label">Carregar mapa</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./src/js/kml-explorer-main.js"></script>
+</body>
+</html>

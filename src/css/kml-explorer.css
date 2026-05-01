@@ -1,0 +1,342 @@
+.kml-explorer-shell {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.kml-explorer-sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: #121621;
+  color: var(--text);
+}
+
+.kml-explorer-sidebar-header {
+  flex-shrink: 0;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.65);
+}
+
+.kml-explorer-sidebar-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.kml-explorer-nav {
+  margin-bottom: 10px;
+}
+
+.kml-explorer-nav a {
+  color: #86efac;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.kml-explorer-nav a:hover {
+  text-decoration: underline;
+}
+
+.kml-explorer-sidebar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.kml-explorer-sidebar-tools .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.kml-explorer-sidebar .field span {
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
+.kml-explorer-sidebar .field input[type="file"] {
+  font-size: 0.8rem;
+}
+
+/* Painel de camadas: toolbar fixa + área com scroll */
+.kml-explorer-layer-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.45);
+}
+
+.kml-layer-panel-toolbar {
+  flex-shrink: 0;
+  padding: 12px 14px 10px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.kml-layer-panel-title {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+.kml-layer-filter-wrap {
+  display: block;
+  margin: 0;
+}
+
+.kml-layer-filter {
+  width: 100%;
+  height: 38px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(71, 85, 105, 0.85);
+  background: #0c1220;
+  color: #f1f5f9;
+  font-size: 0.84rem;
+}
+
+.kml-layer-filter::placeholder {
+  color: #64748b;
+}
+
+.kml-layer-filter:focus {
+  outline: none;
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+}
+
+.kml-layer-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 10px 14px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kml-layer-panel-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kml-layer-panel-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 4px;
+}
+
+.kml-layer-panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.55);
+  border-radius: 4px;
+}
+
+.kml-layer-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.65);
+}
+
+.kml-tree-root-inner {
+  min-height: 0;
+}
+
+.kml-explorer-map-wrap {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.kml-explorer-map {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  background: #0b1220;
+}
+
+.kml-tree-root-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kml-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kml-tree-item {
+  margin: 0;
+  padding: 0;
+}
+
+.kml-tree-nested {
+  margin: 4px 0 6px 4px;
+  padding: 4px 0 4px 10px;
+  border-left: 1px solid rgba(51, 65, 105, 0.65);
+}
+
+.kml-tree-folder {
+  border-radius: 8px;
+  margin-bottom: 4px;
+  background: rgba(30, 41, 59, 0.35);
+  border: 1px solid rgba(51, 65, 105, 0.45);
+  overflow: hidden;
+}
+
+.kml-tree-folder > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.kml-tree-folder > summary::-webkit-details-marker {
+  display: none;
+}
+
+.kml-tree-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  font-size: 0.84rem;
+  color: #f1f5f9;
+  background: rgba(30, 41, 59, 0.55);
+  border-bottom: 1px solid transparent;
+}
+
+.kml-tree-folder[open] > summary {
+  border-bottom-color: rgba(51, 65, 105, 0.45);
+}
+
+.kml-tree-chevron {
+  display: inline-flex;
+  width: 18px;
+  justify-content: center;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.kml-tree-folder[open] .kml-tree-chevron {
+  transform: rotate(90deg);
+}
+
+.kml-tree-label {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.kml-vis-toggle {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(71, 85, 105, 0.85);
+  background: rgba(15, 23, 42, 0.9);
+  color: #64748b;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.kml-vis-toggle:hover {
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.kml-vis-toggle--on {
+  border-color: rgba(34, 197, 94, 0.75);
+  color: #4ade80;
+  background: rgba(22, 101, 52, 0.2);
+}
+
+.kml-vis-toggle--on:hover {
+  border-color: #4ade80;
+  color: #86efac;
+}
+
+.kml-tree-leaf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 3px;
+  border-radius: 8px;
+  border: 1px solid rgba(51, 65, 105, 0.35);
+  background: rgba(15, 23, 42, 0.45);
+  font-size: 0.8rem;
+}
+
+.kml-tree-leaf-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.kml-tree-leaf-name {
+  flex: 1;
+  min-width: 0;
+  color: #e2e8f0;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.kml-tree-muted {
+  display: block;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px dashed rgba(71, 85, 105, 0.5);
+}
+
+.kml-explorer-status {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(51, 65, 85, 0.55);
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.35;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .kml-explorer-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 48vh) minmax(360px, 52vh);
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .kml-explorer-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 48vh;
+    min-height: 0;
+  }
+}
