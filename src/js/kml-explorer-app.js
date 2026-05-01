@@ -156,7 +156,6 @@ export class KmlExplorerApp {
     btn.innerHTML = on
       ? "<i class=\"fas fa-eye\" aria-hidden=\"true\"></i>"
       : "<i class=\"fas fa-eye-slash\" aria-hidden=\"true\"></i>";
-    btn.addEventListener("click", (e) => e.stopPropagation());
     return btn;
   }
 
