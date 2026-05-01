@@ -50,6 +50,17 @@
               placeholder="Filtrar pastas ou placemarks..."
               autocomplete="off">
           </label>
+          <div class="kml-geom-filter" role="group" aria-label="Filtrar por tipo de geometria">
+            <span class="kml-geom-filter-label">Tipos</span>
+            <div class="kml-geom-chips">
+              <button type="button" class="kml-geom-chip" data-geom-kind="point" title="Pontos / marcadores">Pontos</button>
+              <button type="button" class="kml-geom-chip" data-geom-kind="line" title="Linhas">Linhas</button>
+              <button type="button" class="kml-geom-chip" data-geom-kind="polygon" title="Poligonos preenchidos">Poligonos</button>
+              <button type="button" class="kml-geom-chip" data-geom-kind="ring" title="Anéis / contornos">Aneis</button>
+              <button type="button" class="kml-geom-chip" data-geom-kind="other" title="Modelos, tracks, vazio, etc.">Outros</button>
+            </div>
+            <p class="kml-geom-filter-hint hint">Nenhum chip = mostrar tudo. Com chips = mostrar itens que tenham <strong>algum</strong> dos tipos marcados.</p>
+          </div>
         </div>
         <div class="kml-layer-panel-scroll">
           <div id="kmlTreeRoot" class="kml-tree-root-inner hint">
@@ -92,6 +103,7 @@
     </div>
   </dialog>
 
+  <script src="./src/vendor/jszip.min.js"></script>
   <script type="module" src="./src/js/kml-explorer-main.js"></script>
 </body>
 </html>

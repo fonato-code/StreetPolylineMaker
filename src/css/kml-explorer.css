@@ -115,6 +115,115 @@
   box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
 }
 
+.kml-geom-filter {
+  margin-top: 12px;
+}
+
+.kml-geom-filter-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.kml-geom-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kml-geom-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(71, 85, 105, 0.85);
+  background: rgba(15, 23, 42, 0.75);
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.kml-geom-chip:hover {
+  border-color: rgba(148, 163, 184, 0.45);
+  color: #f1f5f9;
+}
+
+.kml-geom-chip--on {
+  border-color: rgba(34, 197, 94, 0.7);
+  background: rgba(22, 101, 52, 0.25);
+  color: #86efac;
+}
+
+.kml-geom-filter-hint {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.kml-geom-filter-hint strong {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.kml-folder-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.kml-folder-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(71, 85, 105, 0.65);
+  color: #94a3b8;
+  font-size: 0.65rem;
+}
+
+.kml-folder-badge--point {
+  color: #f472b6;
+  border-color: rgba(244, 114, 182, 0.35);
+}
+
+.kml-folder-badge--line {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.kml-folder-badge--polygon {
+  color: #a78bfa;
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.kml-folder-badge--ring {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.kml-folder-badge--model {
+  color: #fb923c;
+}
+
+.kml-folder-badge--track {
+  color: #2dd4bf;
+}
+
+.kml-folder-badge--unsupported,
+.kml-folder-badge--empty {
+  color: #64748b;
+}
+
 .kml-layer-panel-scroll {
   flex: 1;
   min-height: 0;

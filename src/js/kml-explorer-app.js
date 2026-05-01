@@ -5,7 +5,12 @@ import {
   parseKmlToForest,
   collectPlacemarkNodes,
   extractPlacemarkGeometries,
+  enrichKmlForest,
+  pruneEmptyKmlNodes,
+  countKmlForestStats,
 } from "./kml-xml-tree.js";
+
+const GEOM_KINDS_OTHER = new Set(["model", "track", "unsupported", "empty"]);
 
 function collectDescendantFolders(folderNode) {
   const out = [];
@@ -47,6 +52,9 @@ export class KmlExplorerApp {
 
     /** @type {ReturnType<typeof setTimeout> | null} */
     this._filterDebounce = null;
+
+    /** @type {Set<string>} */
+    this.geomFilterKinds = new Set();
 
     this.attachUiEvents();
     this.restoreKeyHint();
@@ -112,6 +120,93 @@ export class KmlExplorerApp {
         }, 120);
       });
     }
+
+    document.querySelectorAll(".kml-geom-chip[data-geom-kind]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const k = chip.dataset.geomKind;
+        if (!k) {
+          return;
+        }
+        if (this.geomFilterKinds.has(k)) {
+          this.geomFilterKinds.delete(k);
+          chip.classList.remove("kml-geom-chip--on");
+        } else {
+          this.geomFilterKinds.add(k);
+          chip.classList.add("kml-geom-chip--on");
+        }
+        this.applyTreeFilter();
+      });
+    });
+  }
+
+  iconClassForGeomKind(kind) {
+    const map = {
+      point: "fa-map-marker-alt",
+      line: "fa-grip-lines",
+      polygon: "fa-draw-polygon",
+      ring: "fa-vector-square",
+      model: "fa-cube",
+      track: "fa-location-arrow",
+      unsupported: "fa-unlink",
+      empty: "fa-inbox",
+    };
+    return map[kind] || "fa-question";
+  }
+
+  /**
+   * @param {string[]} kinds
+   */
+  appendFolderGeomBadges(summary, kinds) {
+    const wrap = document.createElement("span");
+    wrap.className = "kml-folder-badges";
+    const uniq = [...new Set(kinds)].sort();
+    for (const k of uniq) {
+      const badge = document.createElement("span");
+      badge.className = `kml-folder-badge kml-folder-badge--${k}`;
+      badge.title = k;
+      const i = document.createElement("i");
+      i.className = `fas ${this.iconClassForGeomKind(k)}`;
+      i.setAttribute("aria-hidden", "true");
+      badge.appendChild(i);
+      wrap.appendChild(badge);
+    }
+    summary.appendChild(wrap);
+  }
+
+  /**
+   * @param {string[]|undefined} kinds
+   */
+  primaryLeafIconClass(kinds) {
+    const order = ["polygon", "line", "point", "ring", "model", "track", "unsupported", "empty"];
+    const list = kinds || [];
+    for (const o of order) {
+      if (list.includes(o)) {
+        return this.iconClassForGeomKind(o);
+      }
+    }
+    return "fa-draw-polygon";
+  }
+
+  /**
+   * @param {string[]} kinds
+   */
+  geomKindMatchesFilter(kinds) {
+    if (this.geomFilterKinds.size === 0) {
+      return true;
+    }
+    const list = kinds || [];
+    if (list.length === 0) {
+      return false;
+    }
+    for (const k of list) {
+      if (this.geomFilterKinds.has(k)) {
+        return true;
+      }
+      if (GEOM_KINDS_OTHER.has(k) && this.geomFilterKinds.has("other")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -178,7 +273,10 @@ export class KmlExplorerApp {
    */
   filterTreeItem(li, q) {
     const name = (li.dataset.kmlSearch || "").toLowerCase();
-    const selfMatch = !q || name.includes(q);
+    const textOk = !q || name.includes(q);
+    const kinds = (li.dataset.geomKinds || "").split(",").filter(Boolean);
+    const geomOk = this.geomKindMatchesFilter(kinds);
+    const selfMatch = textOk && geomOk;
 
     const details = li.querySelector(":scope > details.kml-tree-folder");
     if (!details) {
@@ -329,6 +427,8 @@ export class KmlExplorerApp {
     if (this.elements.layerFilter) {
       this.elements.layerFilter.value = "";
     }
+    this.geomFilterKinds.clear();
+    document.querySelectorAll(".kml-geom-chip--on").forEach((c) => c.classList.remove("kml-geom-chip--on"));
     const dt = new DataTransfer();
     dt.items.add(file);
     this.elements.fileInput.files = dt.files;
@@ -337,14 +437,19 @@ export class KmlExplorerApp {
       const kmlText = await fileToKmlString(file);
       this.setStatus("Analisando KML...");
       await Promise.resolve();
-      const { roots, stats } = parseKmlToForest(kmlText);
+      let { roots, stats, xmlDoc } = parseKmlToForest(kmlText);
+      enrichKmlForest(roots, xmlDoc);
+      roots = pruneEmptyKmlNodes(roots);
       this.indexNodes(roots);
       this.setStatus("Montando arvore (pastas fechadas por padrao — expanda para ver os itens)...");
       await this.renderForest(roots);
+      const after = countKmlForestStats(roots);
+      const droppedPm = stats.placemarks - after.placemarks;
+      const droppedHint = droppedPm > 0 ? ` ${droppedPm} placemark(s) vazio(s) omitido(s).` : "";
       this.setStatus(
-        `Arquivo carregado: ${stats.folders} pasta(s), ${stats.placemarks} placemark(s)${
-          stats.unsupported ? `, ${stats.unsupported} item(ns) nao plotados` : ""
-        }. Ative as camadas na arvore para ver no mapa.`,
+        `Arquivo carregado: ${after.folders} pasta(s), ${after.placemarks} placemark(s)${
+          after.unsupported ? `, ${after.unsupported} item(ns) nao plotados` : ""
+        }.${droppedHint} Itens sem geometria (ponto/linha/poligono) nao aparecem na lista. Ative as camadas na arvore para ver no mapa.`,
       );
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : String(error), true);
@@ -421,6 +526,7 @@ export class KmlExplorerApp {
     li.dataset.kmlSearch = node.name.toLowerCase();
 
     if (node.kind === "unsupported") {
+      li.dataset.geomKinds = "unsupported";
       const span = document.createElement("span");
       span.className = "kml-tree-muted";
       span.textContent = `${node.name} (${node.hint || "nao suportado"})`;
@@ -437,9 +543,17 @@ export class KmlExplorerApp {
       const summary = document.createElement("summary");
       summary.className = "kml-tree-summary";
 
+      const fk = node.folderGeomKinds || [];
+      li.dataset.geomKinds = fk.join(",");
+
       const chevron = document.createElement("span");
       chevron.className = "kml-tree-chevron";
       chevron.innerHTML = "<i class=\"fas fa-chevron-right\" aria-hidden=\"true\"></i>";
+
+      summary.appendChild(chevron);
+      if (fk.length > 0) {
+        this.appendFolderGeomBadges(summary, fk);
+      }
 
       const label = document.createElement("span");
       label.className = "kml-tree-label";
@@ -448,7 +562,7 @@ export class KmlExplorerApp {
 
       const visBtn = this.createVisToggleButton(node.id, "folder", false);
 
-      summary.append(chevron, label, visBtn);
+      summary.append(label, visBtn);
       details.appendChild(summary);
 
       const nested = document.createElement("ul");
@@ -468,11 +582,14 @@ export class KmlExplorerApp {
       return;
     }
 
+    const gk = node.geomKinds || [];
+    li.dataset.geomKinds = gk.join(",");
+
     const row = document.createElement("div");
     row.className = "kml-tree-leaf-row";
 
     const leafIcon = document.createElement("i");
-    leafIcon.className = "fas fa-draw-polygon kml-tree-leaf-icon";
+    leafIcon.className = `fas ${this.primaryLeafIconClass(gk)} kml-tree-leaf-icon`;
     leafIcon.setAttribute("aria-hidden", "true");
 
     const nameEl = document.createElement("span");
@@ -543,12 +660,16 @@ export class KmlExplorerApp {
       return [];
     }
 
-    const list = [];
-    const strokeColor = "#38bdf8";
-    const strokeOpacity = 0.9;
+    const st = node.styleColors;
+    const strokeColor = st?.stroke || "#38bdf8";
+    const strokeOpacity = st?.strokeOpacity ?? 0.9;
     const strokeWeight = 2;
-    const fillColor = "#38bdf8";
-    const fillOpacity = 0.15;
+    const fillColor = st?.fill || st?.stroke || "#38bdf8";
+    const fillOpacity = st?.fillOpacity ?? 0.15;
+    const markerFill = st?.icon || st?.stroke || "#38bdf8";
+    const markerFillOpacity = st?.iconOpacity ?? 1;
+
+    const list = [];
 
     for (const g of geometries) {
       if (g.type === "Point" && g.path?.[0]) {
@@ -557,6 +678,14 @@ export class KmlExplorerApp {
             position: g.path[0],
             map: null,
             title: node.name,
+            icon: {
+              path: this.google.maps.SymbolPath.CIRCLE,
+              scale: 6,
+              fillColor: markerFill,
+              fillOpacity: markerFillOpacity > 0 ? markerFillOpacity : 1,
+              strokeColor: "#020617",
+              strokeWeight: 1.5,
+            },
           }),
         );
       } else if (g.type === "LineString" && g.path?.length) {
