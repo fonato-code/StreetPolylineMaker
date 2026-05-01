@@ -551,6 +551,13 @@ export class KmlExplorerApp {
       chevron.innerHTML = "<i class=\"fas fa-chevron-right\" aria-hidden=\"true\"></i>";
 
       summary.appendChild(chevron);
+      if (node.containerHint === "document") {
+        const docIc = document.createElement("i");
+        docIc.className = "fas fa-globe kml-tree-doc-icon";
+        docIc.setAttribute("aria-hidden", "true");
+        docIc.title = "Documento KML";
+        summary.appendChild(docIc);
+      }
       if (fk.length > 0) {
         this.appendFolderGeomBadges(summary, fk);
       }
@@ -561,6 +568,12 @@ export class KmlExplorerApp {
       label.textContent = childCount ? `${node.name} (${childCount})` : node.name;
 
       const visBtn = this.createVisToggleButton(node.id, "folder", false);
+      if (node.containerHint === "document") {
+        visBtn.setAttribute(
+          "aria-label",
+          "Mostrar ou ocultar geometrias deste documento no mapa",
+        );
+      }
 
       summary.append(label, visBtn);
       details.appendChild(summary);

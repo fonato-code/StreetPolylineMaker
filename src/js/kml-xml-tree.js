@@ -12,6 +12,7 @@
  * @property {string[]} [geomKinds]
  * @property {string[]} [folderGeomKinds]
  * @property {ResolvedKmlStyle|null} [styleColors]
+ * @property {'document'|undefined} [containerHint] pasta que representa um `Document` KML (nível extra como no Google Earth)
  */
 
 /** @typedef {{ stroke?: string, strokeOpacity?: number, fill?: string, fillOpacity?: number, icon?: string, iconOpacity?: number }} ResolvedKmlStyle */
@@ -527,8 +528,30 @@ export function parseKmlToForest(kmlString) {
 }
 
 /**
+ * Ramo visível para `<document>` (nome do `<name>`, filhos como no Google Earth).
+ * @param {Element} docEl
+ * @param {{ folders: number, placemarks: number, unsupported: number }} stats
+ * @returns {KmlTreeNode}
+ */
+function parseDocumentBranch(docEl, stats) {
+  stats.folders += 1;
+  const name = getChildText(docEl, "name") || "Documento";
+  /** @type {KmlTreeNode} */
+  const node = {
+    id: nextId(),
+    kind: "folder",
+    name,
+    children: [],
+    element: docEl,
+    containerHint: "document",
+  };
+  parseFeatureChildren(docEl, stats, (n) => node.children.push(n));
+  return node;
+}
+
+/**
  * Pastas, placemarks e links na raiz de `kml`/`document`/`folder`.
- * `document` é tratado como contentor (Google Earth costuma pôr Document dentro de Folder).
+ * Cada `document` vira um nó de pasta com `containerHint: 'document'`.
  * @param {Element} container
  * @param {{ folders: number, placemarks: number, unsupported: number }} stats
  * @param {(n: KmlTreeNode) => void} sink
@@ -541,7 +564,7 @@ function parseFeatureChildren(container, stats, sink) {
     } else if (tag === "placemark") {
       sink(parsePlacemark(child, stats));
     } else if (tag === "document") {
-      parseFeatureChildren(child, stats, sink);
+      sink(parseDocumentBranch(child, stats));
     } else if (tag === "networklink" || tag === "groundoverlay") {
       stats.unsupported += 1;
       sink({

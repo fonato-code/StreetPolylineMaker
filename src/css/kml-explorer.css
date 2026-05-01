@@ -336,6 +336,13 @@
   transform: rotate(90deg);
 }
 
+.kml-tree-doc-icon {
+  margin-inline: 0.2rem 0.35rem;
+  font-size: 0.88em;
+  color: #7dd3fc;
+  opacity: 0.95;
+}
+
 .kml-tree-label {
   flex: 1;
   min-width: 0;
