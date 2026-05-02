@@ -393,6 +393,38 @@ body.kml-explorer-page {
   padding: 0;
 }
 
+.kml-tree-item[draggable="true"] {
+  cursor: grab;
+}
+
+.kml-tree-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.kml-tree-item.kml-tree-item--selected > .kml-tree-folder > .kml-tree-summary {
+  background: rgba(14, 165, 233, 0.18);
+  border-bottom-color: rgba(56, 189, 248, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.55);
+}
+
+.kml-tree-item.kml-tree-item--selected > .kml-tree-leaf-row {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(14, 165, 233, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+}
+
+.kml-tree-summary.kml-tree-summary--drop-target {
+  background: rgba(56, 189, 248, 0.22) !important;
+  box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.75);
+}
+
+.kml-tree-list.kml-tree-list--drop-target {
+  outline: 2px dashed rgba(56, 189, 248, 0.75);
+  outline-offset: 2px;
+  border-radius: 10px;
+  background: rgba(14, 165, 233, 0.06);
+}
+
 .kml-tree-nested {
   margin: 4px 0 6px 4px;
   padding: 4px 0 4px 10px;

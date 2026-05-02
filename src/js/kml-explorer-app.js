@@ -12,6 +12,54 @@ import {
 } from "./kml-xml-tree.js";
 
 const GEOM_KINDS_OTHER = new Set(["model", "track", "unsupported", "empty"]);
+const KML_TREE_DND_MIME = "application/x-kml-tree-ids";
+
+/**
+ * @param {unknown} raw
+ * @returns {string|null}
+ */
+function normalizeDropFolderId(raw) {
+  if (raw == null) {
+    return null;
+  }
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * @param {DataTransfer} dt
+ * @returns {string[]}
+ */
+function parseDragIds(dt) {
+  /** Somente tipos que gravamos no dragstart — evita JSON.parse em dados estranhos de outros MIMEs. */
+  const attempts = [KML_TREE_DND_MIME, "text/plain", "Text"];
+  for (const mime of attempts) {
+    let raw = "";
+    try {
+      raw = dt.getData(mime);
+    } catch {
+      continue;
+    }
+    if (!raw || typeof raw !== "string") {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        continue;
+      }
+      const ids = parsed
+        .map((x) => (x == null ? "" : String(x)).trim())
+        .filter((x) => x.length > 0);
+      if (ids.length > 0) {
+        return ids;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
 
 function collectDescendantFolders(folderNode) {
   const out = [];
@@ -66,6 +114,21 @@ export class KmlExplorerApp {
     /** @type {Set<string>} */
     this.geomFilterKinds = new Set();
 
+    /** @type {Set<string>} */
+    this.selectedIds = new Set();
+    /** @type {string|null} */
+    this.selectionAnchorId = null;
+    /** @type {import("./kml-xml-tree.js").KmlTreeNode[]|null} */
+    this.forestRoots = null;
+    /** @type {Document|null} */
+    this.lastKmlXmlDoc = null;
+
+    /** Evita dois drops simultâneos (listeners duplicados / bubbling). */
+    this._treeMoveActive = false;
+
+    /** Ignora o click que alguns navegadores disparam logo após um drag na árvore (evita perder multi-seleção). */
+    this._suppressTreeClickAfterDrag = false;
+
     this.attachUiEvents();
     this.restoreKeyHint();
     window.addEventListener("kml-explorer-sidebar-resize", () => this.triggerMapResize());
@@ -104,32 +167,79 @@ export class KmlExplorerApp {
 
     this.elements.treeRoot.addEventListener("click", (event) => {
       const btn = event.target.closest("button[data-vis-toggle]");
-      if (!(btn instanceof HTMLButtonElement)) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const { nodeId: id, kind } = btn.dataset;
-      if (!id || !kind) {
-        return;
-      }
-      const node = this.nodesById.get(id);
-      if (!node) {
-        return;
-      }
-      const next = btn.getAttribute("aria-pressed") !== "true";
-      this.setVisToggleButtonUi(btn, next);
-      if (kind === "folder") {
-        this.applyFolderVisibility(node, next);
-        return;
-      }
-      if (kind === "placemark") {
-        if (next) {
-          this.showPlacemark(node);
-        } else {
-          this.hidePlacemark(node);
+      if (btn instanceof HTMLButtonElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        const { nodeId: id, kind } = btn.dataset;
+        if (!id || !kind) {
+          return;
         }
+        const node = this.nodesById.get(id);
+        if (!node) {
+          return;
+        }
+        const next = btn.getAttribute("aria-pressed") !== "true";
+        this.setVisToggleButtonUi(btn, next);
+        if (kind === "folder") {
+          this.applyFolderVisibility(node, next);
+          return;
+        }
+        if (kind === "placemark") {
+          if (next) {
+            this.showPlacemark(node);
+          } else {
+            this.hidePlacemark(node);
+          }
+        }
+        return;
       }
+
+      if (this._suppressTreeClickAfterDrag) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const li = event.target.closest("li.kml-tree-item[data-node-id]");
+      if (!(li instanceof HTMLLIElement)) {
+        return;
+      }
+      if (event.target.closest(".kml-tree-chevron")) {
+        return;
+      }
+      const nid = li.dataset.nodeId;
+      if (!nid) {
+        return;
+      }
+      const tnode = this.nodesById.get(nid);
+      if (!tnode || tnode.kind === "unsupported") {
+        return;
+      }
+
+      const detailsEl = li.querySelector(":scope > details.kml-tree-folder");
+      if (detailsEl && event.target.closest("summary")) {
+        event.preventDefault();
+      }
+
+      if (event.shiftKey) {
+        this.extendSelectionTo(nid);
+      } else if (event.ctrlKey || event.metaKey) {
+        this.toggleSelection(nid);
+        this.selectionAnchorId = nid;
+      } else {
+        this.selectSingle(nid);
+        this.selectionAnchorId = nid;
+      }
+      this.syncSelectionDom();
+    });
+
+    document.addEventListener("dragend", () => {
+      this.clearTreeDropHighlights();
+      this.syncSelectionDom();
+      this._suppressTreeClickAfterDrag = true;
+      window.setTimeout(() => {
+        this._suppressTreeClickAfterDrag = false;
+      }, 120);
     });
 
     if (this.elements.layerFilter) {
@@ -275,6 +385,7 @@ export class KmlExplorerApp {
   createVisToggleButton(nodeId, kind, on) {
     const btn = document.createElement("button");
     btn.type = "button";
+    btn.draggable = false;
     btn.className = `kml-vis-toggle${on ? " kml-vis-toggle--on" : ""}`;
     btn.dataset.visToggle = "";
     btn.dataset.nodeId = nodeId;
@@ -575,6 +686,10 @@ export class KmlExplorerApp {
 
   clearKmlState() {
     this.closeStreetViewPanel();
+    this.selectedIds.clear();
+    this.selectionAnchorId = null;
+    this.forestRoots = null;
+    this.lastKmlXmlDoc = null;
     for (const ovs of this.overlaysById.values()) {
       for (const o of ovs) {
         o.setMap(null);
@@ -616,6 +731,10 @@ export class KmlExplorerApp {
       let { roots, stats, xmlDoc } = parseKmlToForest(kmlText);
       enrichKmlForest(roots, xmlDoc);
       roots = pruneEmptyKmlNodes(roots);
+      this.forestRoots = roots;
+      this.lastKmlXmlDoc = xmlDoc;
+      this.selectedIds.clear();
+      this.selectionAnchorId = null;
       this.indexNodes(roots);
       this.setStatus("Montando arvore (pastas fechadas por padrao — expanda para ver os itens)...");
       await this.renderForest(roots);
@@ -647,16 +766,17 @@ export class KmlExplorerApp {
    * Renderiza nos em fatias para não travar o mapa / UI em KMLs enormes.
    * @param {import("./kml-xml-tree.js").KmlTreeNode[]} nodes
    * @param {HTMLUListElement} ul
+   * @param {string|null} [parentFolderId] dono da lista (`null` = raiz do arquivo)
    * @returns {Promise<void>}
    */
-  appendNodesChunked(nodes, ul) {
+  appendNodesChunked(nodes, ul, parentFolderId = null) {
     const FRAME_MS = 14;
     let index = 0;
     return new Promise((resolve) => {
       const step = () => {
         const t0 = performance.now();
         while (index < nodes.length && performance.now() - t0 < FRAME_MS) {
-          this.renderNode(nodes[index], ul);
+          this.renderNode(nodes[index], ul, parentFolderId);
           index += 1;
         }
         if (index < nodes.length) {
@@ -682,8 +802,11 @@ export class KmlExplorerApp {
     const ul = document.createElement("ul");
     ul.className = "kml-tree-list kml-tree-root-list";
     this.elements.treeRoot.appendChild(ul);
-    await this.appendNodesChunked(roots, ul);
+    this.bindTreeListDrop(ul, null);
+
+    await this.appendNodesChunked(roots, ul, null);
     this.applyTreeFilter();
+    this.syncSelectionDom();
   }
 
   /** @param {import("./kml-xml-tree.js").KmlTreeNode} node */
@@ -695,8 +818,9 @@ export class KmlExplorerApp {
   /**
    * @param {import("./kml-xml-tree.js").KmlTreeNode} node
    * @param {HTMLUListElement} ul
+   * @param {string|null} [parentFolderId]
    */
-  renderNode(node, ul) {
+  renderNode(node, ul, parentFolderId = null) {
     const li = document.createElement("li");
     li.className = "kml-tree-item";
     li.dataset.kmlSearch = node.name.toLowerCase();
@@ -715,13 +839,23 @@ export class KmlExplorerApp {
       return;
     }
 
+    li.dataset.kmlParentFolder = parentFolderId ?? "";
+
     if (node.kind === "folder") {
+      li.dataset.nodeId = node.id;
+      this.bindTreeDragSource(li, node.id);
+
       const details = document.createElement("details");
       details.open = false;
       details.className = "kml-tree-folder";
 
       const summary = document.createElement("summary");
       summary.className = "kml-tree-summary";
+      summary.addEventListener("click", (e) => {
+        if (!e.target.closest(".kml-tree-chevron")) {
+          e.preventDefault();
+        }
+      });
       const tipF = kmlDescriptionPlainText(node.element);
 
       const fk = node.folderGeomKinds || [];
@@ -729,6 +863,7 @@ export class KmlExplorerApp {
 
       const chevron = document.createElement("span");
       chevron.className = "kml-tree-chevron";
+      chevron.draggable = false;
       chevron.innerHTML = "<i class=\"fas fa-chevron-right\" aria-hidden=\"true\"></i>";
 
       summary.appendChild(chevron);
@@ -764,20 +899,29 @@ export class KmlExplorerApp {
 
       const nested = document.createElement("ul");
       nested.className = "kml-tree-nested";
+      this.bindTreeListDrop(nested, node.id);
 
-      details.addEventListener("toggle", () => {
-        if (!details.open || nested.dataset.kmlRendered === "1") {
-          return;
+      chevron.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const willOpen = !details.open;
+        details.open = willOpen;
+        if (willOpen && nested.dataset.kmlRendered !== "1") {
+          nested.dataset.kmlRendered = "1";
+          void this.appendNodesChunked(node.children || [], nested, node.id).then(() => this.applyTreeFilter());
         }
-        nested.dataset.kmlRendered = "1";
-        void this.appendNodesChunked(node.children || [], nested).then(() => this.applyTreeFilter());
       });
+
+      this.bindFolderSummaryDrop(summary, node.id);
 
       details.appendChild(nested);
       li.appendChild(details);
       ul.appendChild(li);
       return;
     }
+
+    li.dataset.nodeId = node.id;
+    this.bindTreeDragSource(li, node.id);
 
     const gk = node.geomKinds || [];
     li.dataset.geomKinds = gk.join(",");
@@ -987,6 +1131,472 @@ export class KmlExplorerApp {
       this.setStatus("Mapa ajustado ao que esta visivel.");
     } else {
       this.setStatus("Nenhuma geometria visivel. Ative camadas na arvore.", true);
+    }
+  }
+
+  clearTreeDropHighlights() {
+    this.elements.treeRoot.querySelectorAll(".kml-tree-summary--drop-target").forEach((el) => {
+      el.classList.remove("kml-tree-summary--drop-target");
+    });
+    this.elements.treeRoot.querySelectorAll(".kml-tree-list--drop-target").forEach((el) => {
+      el.classList.remove("kml-tree-list--drop-target");
+    });
+  }
+
+  /**
+   * Lista (`ul`): soltar entre itens para reordenar ou mover para esse nível.
+   * @param {HTMLUListElement} ul
+   * @param {string|null} parentFolderId `null` = raiz do arquivo
+   */
+  bindTreeListDrop(ul, parentFolderId) {
+    ul.dataset.kmlDropParent = parentFolderId != null ? String(parentFolderId) : "";
+    ul.addEventListener("dragover", (e) => {
+      const hitLi = e.target.closest("li.kml-tree-item");
+      const directChild = !!(hitLi && hitLi.parentElement === ul);
+      if (directChild && e.target.closest("summary.kml-tree-summary")) {
+        return;
+      }
+      if (!directChild && e.target !== ul) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      ul.classList.add("kml-tree-list--drop-target");
+    });
+    ul.addEventListener("dragleave", (e) => {
+      if (!ul.contains(/** @type {Node|null} */ (e.relatedTarget))) {
+        ul.classList.remove("kml-tree-list--drop-target");
+      }
+    });
+    ul.addEventListener("drop", (e) => {
+      const hitLi = e.target.closest("li.kml-tree-item");
+      const directChild = !!(hitLi && hitLi.parentElement === ul);
+      if (directChild && e.target.closest("summary.kml-tree-summary")) {
+        return;
+      }
+      if (!directChild && e.target !== ul) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      ul.classList.remove("kml-tree-list--drop-target");
+      const ids = parseDragIds(e.dataTransfer);
+      if (!ids.length) {
+        return;
+      }
+      const insertBeforeId = this.computeListDropInsertBefore(ul, e.clientY, ids);
+      const folderFromUl = normalizeDropFolderId(ul.dataset.kmlDropParent);
+      void this.applyTreeMove(ids, folderFromUl, insertBeforeId);
+    });
+  }
+
+  /**
+   * @param {HTMLUListElement} ul
+   * @param {number} clientY
+   * @param {string[]} draggedIds
+   * @returns {string|null} id do primeiro irmão antes do qual inserir; `null` = fim da lista
+   */
+  computeListDropInsertBefore(ul, clientY, draggedIds) {
+    const dragSet = new Set(draggedIds);
+    const items = [...ul.children].filter(
+      (c) =>
+        c instanceof HTMLLIElement &&
+        c.classList.contains("kml-tree-item") &&
+        !c.hidden &&
+        typeof c.dataset.nodeId === "string" &&
+        c.dataset.nodeId.length > 0,
+    );
+    for (let i = 0; i < items.length; i += 1) {
+      const r = items[i].getBoundingClientRect();
+      const mid = r.top + r.height / 2;
+      if (clientY < mid) {
+        let j = i;
+        while (j < items.length) {
+          const id = items[j].dataset.nodeId;
+          if (id && !dragSet.has(id)) {
+            return id;
+          }
+          j += 1;
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {HTMLLIElement} li
+   * @param {string} nodeId
+   */
+  bindTreeDragSource(li, nodeId) {
+    li.draggable = true;
+    li.addEventListener("dragstart", (e) => {
+      if (!this.forestRoots) {
+        return;
+      }
+      const nid = String(nodeId ?? "").trim();
+      if (!nid) {
+        e.preventDefault();
+        return;
+      }
+      let ids = [...this.selectedIds];
+      if (!this.selectedIds.has(nid)) {
+        this.selectSingle(nid);
+        this.selectionAnchorId = nid;
+        ids = [nid];
+      }
+      ids = this.topmostMovableSelection(ids);
+      const payload = JSON.stringify(ids);
+      try {
+        e.dataTransfer.setData("text/plain", payload);
+      } catch {
+        /* alguns ambientes restringem tipos */
+      }
+      e.dataTransfer.setData(KML_TREE_DND_MIME, payload);
+      e.dataTransfer.effectAllowed = "move";
+      /* Mantém o destaque da multi-seleção: o navegador pode alterar o visual do nó em drag. */
+      this.syncSelectionDom();
+      window.requestAnimationFrame(() => this.syncSelectionDom());
+    });
+  }
+
+  /**
+   * @param {HTMLElement} summary
+   * @param {string} folderNodeId
+   */
+  bindFolderSummaryDrop(summary, folderNodeId) {
+    summary.dataset.kmlDropFolderId = folderNodeId;
+    summary.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      summary.classList.add("kml-tree-summary--drop-target");
+    });
+    summary.addEventListener("dragleave", (e) => {
+      if (!summary.contains(/** @type {Node|null} */ (e.relatedTarget))) {
+        summary.classList.remove("kml-tree-summary--drop-target");
+      }
+    });
+    summary.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      summary.classList.remove("kml-tree-summary--drop-target");
+      const ids = parseDragIds(e.dataTransfer);
+      if (!ids.length) {
+        return;
+      }
+      const fid = normalizeDropFolderId(summary.dataset.kmlDropFolderId);
+      void this.applyTreeMove(ids, fid, null);
+    });
+  }
+
+  selectSingle(nodeId) {
+    this.selectedIds.clear();
+    this.selectedIds.add(nodeId);
+  }
+
+  toggleSelection(nodeId) {
+    if (this.selectedIds.has(nodeId)) {
+      this.selectedIds.delete(nodeId);
+    } else {
+      this.selectedIds.add(nodeId);
+    }
+  }
+
+  extendSelectionTo(nodeId) {
+    const items = this.getVisibleSelectableLis();
+    const anchor = this.selectionAnchorId;
+    if (!anchor || items.length === 0) {
+      this.selectSingle(nodeId);
+      return;
+    }
+    const i0 = items.findIndex((li) => li.dataset.nodeId === anchor);
+    const i1 = items.findIndex((li) => li.dataset.nodeId === nodeId);
+    if (i0 < 0 || i1 < 0) {
+      this.selectSingle(nodeId);
+      return;
+    }
+    const a = Math.min(i0, i1);
+    const b = Math.max(i0, i1);
+    this.selectedIds.clear();
+    for (let i = a; i <= b; i += 1) {
+      const id = items[i].dataset.nodeId;
+      if (id) {
+        this.selectedIds.add(id);
+      }
+    }
+  }
+
+  syncSelectionDom() {
+    this.elements.treeRoot.querySelectorAll("li.kml-tree-item--selected").forEach((li) => {
+      li.classList.remove("kml-tree-item--selected");
+    });
+    for (const id of this.selectedIds) {
+      const li = this.elements.treeRoot.querySelector(`li.kml-tree-item[data-node-id="${id}"]`);
+      if (li) {
+        li.classList.add("kml-tree-item--selected");
+      }
+    }
+  }
+
+  /** @returns {HTMLLIElement[]} */
+  getVisibleSelectableLis() {
+    const ul = this.elements.treeRoot.querySelector(":scope > ul.kml-tree-root-list");
+    if (!(ul instanceof HTMLUListElement)) {
+      return [];
+    }
+    /** @param {HTMLUListElement} listUl */
+    const walk = (listUl) => {
+      /** @type {HTMLLIElement[]} */
+      const out = [];
+      for (const child of listUl.children) {
+        if (!(child instanceof HTMLLIElement) || !child.classList.contains("kml-tree-item")) {
+          continue;
+        }
+        if (child.hidden || !child.dataset.nodeId) {
+          continue;
+        }
+        out.push(child);
+        const nested = child.querySelector(":scope > details.kml-tree-folder > ul.kml-tree-nested");
+        if (nested instanceof HTMLUListElement && nested.children.length > 0) {
+          out.push(...walk(nested));
+        }
+      }
+      return out;
+    };
+    return walk(ul);
+  }
+
+  /**
+   * @param {string[]} ids
+   */
+  topmostMovableSelection(ids) {
+    const set = new Set(ids);
+    /** @type {string[]} */
+    const out = [];
+    for (const id of ids) {
+      let under = false;
+      let p = this.findParentNode(id);
+      while (p) {
+        if (set.has(p.id)) {
+          under = true;
+          break;
+        }
+        p = this.findParentNode(p.id);
+      }
+      if (!under) {
+        out.push(id);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * @param {string[]} ids
+   */
+  sortIdsByVisibleOrder(ids) {
+    const vis = this.getVisibleSelectableLis().map((li) => li.dataset.nodeId);
+    const idx = new Map(vis.map((id, i) => [id, i]));
+    return [...ids].sort((a, b) => (idx.get(a) ?? 1e9) - (idx.get(b) ?? 1e9));
+  }
+
+  /**
+   * @param {string} childId
+   * @param {import("./kml-xml-tree.js").KmlTreeNode[]|null} [roots]
+   * @returns {import("./kml-xml-tree.js").KmlTreeNode|null}
+   */
+  findParentNode(childId, roots = this.forestRoots) {
+    if (!roots) {
+      return null;
+    }
+    for (const node of roots) {
+      if (node.children?.some((c) => c.id === childId)) {
+        return node;
+      }
+      if (node.children?.length) {
+        const deeper = this.findParentNode(childId, node.children);
+        if (deeper) {
+          return deeper;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Verdadeiro se `nodeId` está em algum nível sob `ancestorFolderId`.
+   * @param {string} nodeId
+   * @param {string} ancestorFolderId
+   */
+  isUnderFolder(nodeId, ancestorFolderId) {
+    let p = this.findParentNode(nodeId);
+    while (p) {
+      if (p.id === ancestorFolderId) {
+        return true;
+      }
+      p = this.findParentNode(p.id);
+    }
+    return false;
+  }
+
+  /**
+   * @param {string[]} sourceTopIds
+   * @param {string|null} targetFolderId null = raiz
+   * @param {string|null} insertBeforeId irmão antes do qual inserir nesta lista; `null` = inserir no fim (ex.: soltar no nome da pasta)
+   */
+  validateTreeDrop(sourceTopIds, targetFolderId, insertBeforeId = null) {
+    if (!sourceTopIds.length) {
+      return false;
+    }
+    const normTarget = normalizeDropFolderId(targetFolderId);
+    const target = normTarget ? this.nodesById.get(normTarget) : null;
+    if (normTarget && (!target || target.kind !== "folder")) {
+      return false;
+    }
+    const dragSet = new Set(sourceTopIds);
+    if (insertBeforeId != null && String(insertBeforeId).trim() !== "") {
+      const insId = String(insertBeforeId).trim();
+      if (dragSet.has(insId)) {
+        return false;
+      }
+      const beforeNode = this.nodesById.get(insId);
+      if (!beforeNode) {
+        return false;
+      }
+      const esc =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(insId)
+          : insId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const beforeLi = this.elements.treeRoot.querySelector(`li.kml-tree-item[data-node-id="${esc}"]`);
+      const domParent = beforeLi?.dataset?.kmlParentFolder ?? "";
+      const expectedParent = normTarget ?? "";
+      const domOk = beforeLi != null && domParent === expectedParent;
+      const modelParent = this.findParentNode(insId)?.id ?? null;
+      const modelOk =
+        (normTarget == null && modelParent == null) || (normTarget != null && modelParent === normTarget);
+      if (!domOk && !modelOk) {
+        return false;
+      }
+    }
+    for (const sid of sourceTopIds) {
+      if (normTarget != null && sid === normTarget) {
+        return false;
+      }
+      const src = this.nodesById.get(sid);
+      if (!src || (src.kind !== "folder" && src.kind !== "placemark")) {
+        return false;
+      }
+      if (src.kind === "folder" && normTarget && this.isUnderFolder(normTarget, sid)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** @returns {Set<string>} */
+  captureExpandedFolderIds() {
+    const ids = new Set();
+    this.elements.treeRoot.querySelectorAll("details.kml-tree-folder[open]").forEach((d) => {
+      const li = d.closest("li.kml-tree-item");
+      const nid = li?.dataset?.nodeId;
+      if (nid) {
+        ids.add(nid);
+      }
+    });
+    return ids;
+  }
+
+  /**
+   * @param {Set<string>} expandedIds
+   */
+  async restoreExpandedFolders(expandedIds) {
+    if (!expandedIds?.size) {
+      return;
+    }
+    for (const id of expandedIds) {
+      const li = this.elements.treeRoot.querySelector(`li.kml-tree-item[data-node-id="${id}"]`);
+      const details = li?.querySelector(":scope > details.kml-tree-folder");
+      const nested = details?.querySelector(":scope > ul.kml-tree-nested");
+      const n = this.nodesById.get(id);
+      if (!(details instanceof HTMLDetailsElement) || !(nested instanceof HTMLUListElement) || !n?.children?.length) {
+        continue;
+      }
+      details.open = true;
+      if (nested.dataset.kmlRendered !== "1") {
+        nested.dataset.kmlRendered = "1";
+        await this.appendNodesChunked(n.children, nested, n.id);
+      }
+    }
+    this.applyTreeFilter();
+  }
+
+  /**
+   * @param {string[]} sourceIds
+   * @param {string|null} targetFolderId
+   * @param {string|null} [insertBeforeId]
+   */
+  async applyTreeMove(sourceIds, targetFolderId, insertBeforeId = null) {
+    if (!this.forestRoots || !this.lastKmlXmlDoc) {
+      return;
+    }
+    if (this._treeMoveActive) {
+      return;
+    }
+    this._treeMoveActive = true;
+    try {
+      let ids = this.topmostMovableSelection(sourceIds.map((x) => String(x).trim()).filter(Boolean));
+      ids = this.sortIdsByVisibleOrder(ids);
+      const folderTarget = normalizeDropFolderId(targetFolderId);
+      const ins =
+        insertBeforeId != null && String(insertBeforeId).trim() !== "" ? String(insertBeforeId).trim() : null;
+      if (!this.validateTreeDrop(ids, folderTarget, ins)) {
+        this.setStatus("Nao e possivel soltar nesta pasta.", true);
+        return;
+      }
+      const nodes = ids.map((id) => this.nodesById.get(id)).filter(Boolean);
+      if (nodes.length !== ids.length) {
+        this.setStatus("Nao e possivel soltar nesta pasta.", true);
+        return;
+      }
+      for (const node of nodes) {
+        const parent = this.findParentNode(node.id);
+        const arr = parent?.children ?? this.forestRoots;
+        const ix = arr.indexOf(node);
+        if (ix >= 0) {
+          arr.splice(ix, 1);
+        }
+      }
+      const target = folderTarget ? this.nodesById.get(folderTarget) : null;
+      /** @type {import("./kml-xml-tree.js").KmlTreeNode[]} */
+      let destArr;
+      if (target) {
+        if (!target.children) {
+          target.children = [];
+        }
+        destArr = target.children;
+      } else {
+        destArr = this.forestRoots;
+      }
+      let insertIndex = destArr.length;
+      if (ins) {
+        const beforeNode = this.nodesById.get(ins);
+        const ix = beforeNode ? destArr.indexOf(beforeNode) : -1;
+        if (ix >= 0) {
+          insertIndex = ix;
+        }
+      }
+      destArr.splice(insertIndex, 0, ...nodes);
+      enrichKmlForest(this.forestRoots, this.lastKmlXmlDoc);
+      this.indexNodes(this.forestRoots);
+      const expanded = this.captureExpandedFolderIds();
+      await this.renderForest(this.forestRoots);
+      await this.restoreExpandedFolders(expanded);
+      this.applyTreeFilter();
+      this.syncSelectionDom();
+      this.setStatus(nodes.length > 1 ? `${nodes.length} itens movidos.` : "Item movido.");
+    } finally {
+      this._treeMoveActive = false;
     }
   }
 }
