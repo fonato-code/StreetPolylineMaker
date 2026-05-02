@@ -1033,7 +1033,10 @@ export class StreetPolylineMakerApp {
     this.previewLine.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
     this.previewRadius.addListener("mousemove", (event) => this.handleMapMove(event.latLng));
 
-    this.historyInfoWindow = new this.google.maps.InfoWindow();
+    this.historyInfoWindow = new this.google.maps.InfoWindow({
+      /* Sobe o balão em relação ao ponto: evita cobrir o marker ao passar o mouse. */
+      pixelOffset: new this.google.maps.Size(0, -56),
+    });
     this.google.maps.event.addListener(this.historyInfoWindow, "domready", () => {
       const root = document.getElementById("street-polyline-history-tooltip");
       if (!root) {
@@ -2060,18 +2063,19 @@ export class StreetPolylineMakerApp {
         map: this.map,
       });
 
-      [marker, circle].forEach((overlay) => {
-        overlay.addListener("mouseover", (event) => {
-          this.cancelHistoryTooltipClose();
-          this.showHistoryTooltip(normalized, event.latLng || position);
-        });
-        overlay.addListener("mouseout", () => this.scheduleHistoryTooltipClose());
+      marker.addListener("mouseover", (event) => {
+        this.cancelHistoryTooltipClose();
+        this.showHistoryTooltip(normalized, event.latLng || position);
+      });
+      marker.addListener("mouseout", () => this.scheduleHistoryTooltipClose());
+
+      for (const overlay of [marker, circle]) {
         overlay.addListener("click", (event) => {
           if (event.domEvent?.ctrlKey) {
             this.createAnchorFromHistory(normalized);
           }
         });
-      });
+      }
 
       this.importedMarkers.push(marker);
       this.importedCircles.push(circle);
