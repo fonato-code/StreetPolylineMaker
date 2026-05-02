@@ -347,6 +347,9 @@ export class StreetPolylineMakerApp {
     if (targets.length > 0) {
       this.recomputeAnchorKmsAlongPolyline(targets, route.startKm);
     }
+    if (route.exportMode !== "secundario") {
+      route.endKm = this.getRouteComputedEndKm(route);
+    }
     if (route.id === this.activeRouteId) {
       this.refreshAnchorMarkerMeta();
       this.refreshExportPreview();
@@ -374,6 +377,18 @@ export class StreetPolylineMakerApp {
     }
     this.renderRoutesTable();
     this.syncConfigBarFromActiveRoute();
+  }
+
+  /** KM final derivado dos pontos (ultima ancora); modo Normal na tabela e metadata. */
+  getRouteComputedEndKm(route) {
+    if (!route) {
+      return 0;
+    }
+    const anchors = route.id === this.activeRouteId ? this.anchorPoints : route.anchors;
+    if (anchors.length > 0) {
+      return parseNumber(anchors[anchors.length - 1].km, route.startKm);
+    }
+    return parseNumber(route.startKm, 0);
   }
 
   secondaryKm(route, fractionAlong01) {
@@ -529,6 +544,9 @@ export class StreetPolylineMakerApp {
     if (this.anchorPoints.length > 0) {
       route.startKm = parseNumber(this.anchorPoints[0].km, route.startKm);
     }
+    if (route.exportMode !== "secundario") {
+      route.endKm = this.getRouteComputedEndKm(route);
+    }
   }
 
   switchActiveRoute(routeId) {
@@ -677,8 +695,11 @@ export class StreetPolylineMakerApp {
       const inpKmEnd = document.createElement("input");
       inpKmEnd.type = "number";
       inpKmEnd.step = "0.001";
-      inpKmEnd.value = Number(route.endKm ?? 0).toFixed(3);
       const secundario = route.exportMode === "secundario";
+      const displayEndKm = secundario
+        ? parseNumber(route.endKm, route.startKm)
+        : this.getRouteComputedEndKm(route);
+      inpKmEnd.value = Number(displayEndKm).toFixed(3);
       inpKmEnd.disabled = !secundario;
       inpKmEnd.addEventListener("change", () => {
         this.applyEndKmToRoute(route, inpKmEnd.value);
@@ -707,6 +728,8 @@ export class StreetPolylineMakerApp {
           } else if (!route.endKm || route.endKm <= route.startKm) {
             route.endKm = roundKm(route.startKm + 0.001);
           }
+        } else {
+          route.endKm = this.getRouteComputedEndKm(route);
         }
         this.persistDraft();
         if (route.id === this.activeRouteId) {
