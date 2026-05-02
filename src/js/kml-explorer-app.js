@@ -1,4 +1,5 @@
-import { STORAGE_KEYS } from "./constants.js";
+import { STORAGE_KEYS, DRAFT_VERSION, generateRouteId } from "./constants.js";
+import { distanceMeters } from "./geo-utils.js";
 import { loadGoogleMapsApi } from "./google-maps-script.js";
 import { fileToKmlString } from "./kml-read.js";
 import {
@@ -106,6 +107,7 @@ export class KmlExplorerApp {
       apiKey: document.getElementById("apiKey"),
       saveApiKey: document.getElementById("saveApiKey"),
       loadMap: document.getElementById("loadMap"),
+      toastEl: document.getElementById("kmlExplorerToast"),
     };
 
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -128,6 +130,15 @@ export class KmlExplorerApp {
 
     /** Ignora o click que alguns navegadores disparam logo após um drag na árvore (evita perder multi-seleção). */
     this._suppressTreeClickAfterDrag = false;
+
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._toastHideTimer = null;
+    /** @type {string[]} */
+    this._treeContextMenuIds = [];
+    /** @type {HTMLDivElement|null} */
+    this._treeContextMenuEl = null;
+    /** @type {boolean} */
+    this._treeContextMenuBound = false;
 
     this.attachUiEvents();
     this.restoreKeyHint();
@@ -283,6 +294,8 @@ export class KmlExplorerApp {
     );
     window.addEventListener("mousemove", (event) => this.handleStreetViewResize(event));
     window.addEventListener("mouseup", () => this.stopStreetViewResize());
+
+    this.attachTreeContextMenu();
   }
 
   iconClassForGeomKind(kind) {
@@ -682,6 +695,336 @@ export class KmlExplorerApp {
   setStatus(message, isError = false) {
     this.elements.statusEl.textContent = message;
     this.elements.statusEl.classList.toggle("error-text", isError);
+  }
+
+  attachTreeContextMenu() {
+    if (this._treeContextMenuBound) {
+      return;
+    }
+    this._treeContextMenuBound = true;
+
+    const menu = document.createElement("div");
+    menu.id = "kmlTreeContextMenu";
+    menu.className = "kml-tree-context-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "kml-tree-context-menu-item";
+    item.setAttribute("role", "menuitem");
+    item.textContent = "Exportar para historico";
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+    this._treeContextMenuEl = menu;
+
+    const hideMenu = () => {
+      menu.hidden = true;
+      this._treeContextMenuIds = [];
+    };
+
+    item.addEventListener("click", () => {
+      const ids = [...this._treeContextMenuIds];
+      hideMenu();
+      void this.exportIdsToHistoryClipboard(ids);
+    });
+
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        if (!menu.hidden && e.target instanceof Node && !menu.contains(e.target)) {
+          hideMenu();
+        }
+      },
+      true,
+    );
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu.hidden) {
+        hideMenu();
+      }
+    });
+
+    window.addEventListener("blur", hideMenu);
+
+    this.elements.treeRoot.addEventListener("contextmenu", (event) => {
+      if (!this.forestRoots) {
+        return;
+      }
+      const li = event.target.closest("li.kml-tree-item[data-node-id]");
+      if (!(li instanceof HTMLLIElement)) {
+        return;
+      }
+      const nid = (li.dataset.nodeId || "").trim();
+      if (!nid) {
+        return;
+      }
+      const tnode = this.nodesById.get(nid);
+      if (!tnode || tnode.kind === "unsupported") {
+        return;
+      }
+
+      event.preventDefault();
+
+      let ids = [...this.selectedIds];
+      if (!this.selectedIds.has(nid)) {
+        ids = [nid];
+      }
+      this._treeContextMenuIds = ids;
+
+      const x = event.clientX;
+      const y = event.clientY;
+      menu.hidden = false;
+      menu.style.left = `${x}px`;
+      menu.style.top = `${y}px`;
+
+      window.requestAnimationFrame(() => {
+        const rect = menu.getBoundingClientRect();
+        const pad = 8;
+        let left = x;
+        let top = y;
+        if (rect.right > window.innerWidth - pad) {
+          left = Math.max(pad, window.innerWidth - rect.width - pad);
+        }
+        if (rect.bottom > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - rect.height - pad);
+        }
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+      });
+    });
+  }
+
+  /**
+   * @param {string[]} ids
+   */
+  collectPlacemarksForHistoryExport(ids) {
+    /** @type {import("./kml-xml-tree.js").KmlTreeNode[]} */
+    const out = [];
+    const seen = new Set();
+    for (const id of ids) {
+      const node = this.nodesById.get(id);
+      if (!node) {
+        continue;
+      }
+      if (node.kind === "placemark") {
+        if (!seen.has(node.id)) {
+          seen.add(node.id);
+          out.push(node);
+        }
+      } else if (node.kind === "folder") {
+        for (const pm of collectPlacemarkNodes(node)) {
+          if (!seen.has(pm.id)) {
+            seen.add(pm.id);
+            out.push(pm);
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * @param {import("./kml-xml-tree.js").LatLngLiteral[]} path
+   */
+  stripClosingLatLngRing(path) {
+    if (!path || path.length < 2) {
+      return path ? [...path] : [];
+    }
+    const first = path[0];
+    const last = path[path.length - 1];
+    const close =
+      Math.abs(first.lat - last.lat) < 1e-9 && Math.abs(first.lng - last.lng) < 1e-9;
+    const core = close ? path.slice(0, -1) : [...path];
+    return core.filter((pt) => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng));
+  }
+
+  /**
+   * @param {{ type: string, path?: import("./kml-xml-tree.js").LatLngLiteral[], paths?: import("./kml-xml-tree.js").LatLngLiteral[][] }} g
+   * @returns {import("./kml-xml-tree.js").LatLngLiteral[]}
+   */
+  flattenGeometryForHistoryExport(g) {
+    if (!g?.type) {
+      return [];
+    }
+    if (g.type === "Point" || g.type === "LineString") {
+      const p = g.path || [];
+      return p.filter((pt) => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng));
+    }
+    if (g.type === "LinearRing") {
+      return this.stripClosingLatLngRing(g.path || []);
+    }
+    if (g.type === "Polygon" && g.paths?.length) {
+      return this.stripClosingLatLngRing(g.paths[0] || []);
+    }
+    return [];
+  }
+
+  /**
+   * Monta o mesmo JSON que o editor grava em `localStorage` (`persistDraft`).
+   * @param {import("./kml-xml-tree.js").KmlTreeNode[]} placemarks
+   */
+  buildHistoryDraftFromPlacemarks(placemarks) {
+    if (!placemarks.length) {
+      return null;
+    }
+
+    const sortedIds = this.sortIdsByVisibleOrder(placemarks.map((p) => p.id));
+    const byId = new Map(placemarks.map((p) => [p.id, p]));
+    const ordered = sortedIds.map((id) => byId.get(id)).filter(Boolean);
+
+    /** @type {{ id: number, longitude: number, latitude: number, km: string, rodovia: string, raio: number, sentido: string, nome: string }[]} */
+    const anchors = [];
+    let seq = 1;
+    let kmAcc = 0;
+    /** @type {{ lat: number, lng: number } | null} */
+    let lastCoord = null;
+
+    const pushVertex = (lat, lng, nome) => {
+      const coord = { lat: Number(lat), lng: Number(lng) };
+      if (!Number.isFinite(coord.lat) || !Number.isFinite(coord.lng)) {
+        return;
+      }
+      if (lastCoord) {
+        kmAcc += distanceMeters(lastCoord, coord) / 1000;
+      }
+      const label = (nome || "").trim().slice(0, 240);
+      anchors.push({
+        id: seq++,
+        longitude: coord.lng,
+        latitude: coord.lat,
+        km: kmAcc.toFixed(3),
+        rodovia: "",
+        raio: 500,
+        sentido: "N",
+        nome: label,
+      });
+      lastCoord = coord;
+    };
+
+    for (const pm of ordered) {
+      if (!pm.element) {
+        continue;
+      }
+      const { geometries, error } = extractPlacemarkGeometries(pm.element);
+      if (error || !geometries?.length) {
+        continue;
+      }
+      const nome = (pm.name || "").trim();
+      for (const g of geometries) {
+        const pts = this.flattenGeometryForHistoryExport(g);
+        for (const pt of pts) {
+          pushVertex(pt.lat, pt.lng, nome);
+        }
+      }
+    }
+
+    if (anchors.length === 0) {
+      return null;
+    }
+
+    const route = {
+      id: generateRouteId(),
+      roadName: "KML",
+      direction: "N",
+      displayName: `Explorador (${placemarks.length} placemark(s))`,
+      startKm: 0,
+      endKm: 0,
+      defaultRadius: 500,
+      exportMode: "normal",
+      anchors,
+    };
+
+    return {
+      version: DRAFT_VERSION,
+      activeRouteId: route.id,
+      meta: { exportStepM: 100 },
+      routes: [route],
+    };
+  }
+
+  /** @param {string} text */
+  async copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      /* fallback */
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * @param {string[]} ids
+   */
+  async exportIdsToHistoryClipboard(ids) {
+    if (!ids.length) {
+      return;
+    }
+    const placemarks = this.collectPlacemarksForHistoryExport(ids);
+    const draft = this.buildHistoryDraftFromPlacemarks(placemarks);
+    if (!draft) {
+      this.showKmlToast(
+        "Nenhum ponto geometrico nos itens selecionados (apenas pastas vazias ou sem geometria plotavel).",
+        true,
+      );
+      return;
+    }
+    const text = JSON.stringify(draft, null, 2);
+    const ok = await this.copyTextToClipboard(text);
+    if (ok) {
+      const n = draft.routes[0]?.anchors?.length ?? 0;
+      this.showKmlToast(
+        `Historico copiado (${n} pontos). No editor: Importar → cole o JSON → \"Importar como edicao\".`,
+      );
+    } else {
+      this.showKmlToast("Nao foi possivel copiar para a area de transferencia.", true);
+    }
+  }
+
+  showKmlToast(message, isError = false) {
+    let el = this.elements.toastEl;
+    if (!(el instanceof HTMLElement)) {
+      el = document.createElement("div");
+      el.id = "kmlExplorerToast";
+      el.className = "kml-explorer-toast";
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      document.body.appendChild(el);
+      this.elements.toastEl = el;
+    }
+    if (this._toastHideTimer != null) {
+      window.clearTimeout(this._toastHideTimer);
+      this._toastHideTimer = null;
+    }
+    el.textContent = message;
+    el.hidden = false;
+    el.classList.toggle("kml-explorer-toast--error", isError);
+    window.requestAnimationFrame(() => {
+      el.classList.add("kml-explorer-toast--visible");
+    });
+    this._toastHideTimer = window.setTimeout(() => {
+      el.classList.remove("kml-explorer-toast--visible");
+      this._toastHideTimer = window.setTimeout(() => {
+        el.hidden = true;
+        this._toastHideTimer = null;
+      }, 220);
+    }, 4500);
   }
 
   clearKmlState() {

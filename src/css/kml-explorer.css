@@ -581,6 +581,72 @@ body.kml-explorer-page {
   border: 0;
 }
 
+.kml-explorer-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 10050;
+  max-width: min(92vw, 440px);
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  color: #e2e8f0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(51, 65, 105, 0.7);
+  opacity: 0;
+  transform: translateX(-50%) translateY(16px);
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.kml-explorer-toast.kml-explorer-toast--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.kml-explorer-toast.kml-explorer-toast--error {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+.kml-tree-context-menu {
+  position: fixed;
+  z-index: 10060;
+  min-width: 220px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(51, 65, 105, 0.8);
+  border-radius: 8px;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.42);
+}
+
+.kml-tree-context-menu-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 0.86rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.kml-tree-context-menu-item:hover {
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.kml-tree-context-menu-item:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.65);
+  outline-offset: -2px;
+}
+
 @media (max-width: 900px) {
 
   html.kml-explorer-page,
