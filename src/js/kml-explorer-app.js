@@ -8,6 +8,7 @@ import {
   enrichKmlForest,
   pruneEmptyKmlNodes,
   countKmlForestStats,
+  kmlDescriptionPlainText,
 } from "./kml-xml-tree.js";
 
 const GEOM_KINDS_OTHER = new Set(["model", "track", "unsupported", "empty"]);
@@ -551,6 +552,10 @@ export class KmlExplorerApp {
       const span = document.createElement("span");
       span.className = "kml-tree-muted";
       span.textContent = `${node.name} (${node.hint || "nao suportado"})`;
+      const tipU = kmlDescriptionPlainText(node.element);
+      if (tipU) {
+        li.title = tipU;
+      }
       li.appendChild(span);
       ul.appendChild(li);
       return;
@@ -563,6 +568,7 @@ export class KmlExplorerApp {
 
       const summary = document.createElement("summary");
       summary.className = "kml-tree-summary";
+      const tipF = kmlDescriptionPlainText(node.element);
 
       const fk = node.folderGeomKinds || [];
       li.dataset.geomKinds = fk.join(",");
@@ -587,6 +593,9 @@ export class KmlExplorerApp {
       label.className = "kml-tree-label";
       const childCount = node.children?.length ?? 0;
       label.textContent = childCount ? `${node.name} (${childCount})` : node.name;
+      if (tipF) {
+        label.title = tipF;
+      }
 
       const visBtn = this.createVisToggleButton(node.id, "folder", false);
       if (node.containerHint === "document") {
@@ -621,6 +630,10 @@ export class KmlExplorerApp {
 
     const row = document.createElement("div");
     row.className = "kml-tree-leaf-row";
+    const tipP = kmlDescriptionPlainText(node.element);
+    if (tipP) {
+      row.title = tipP;
+    }
 
     const leafIcon = document.createElement("i");
     leafIcon.className = `fas ${this.primaryLeafIconClass(gk)} kml-tree-leaf-icon`;

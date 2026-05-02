@@ -6,7 +6,7 @@
  * @property {string} id
  * @property {'folder'|'placemark'|'unsupported'} kind
  * @property {string} name
- * @property {Element} [element]
+ * @property {Element} [element] placemark, folder, document, unsupported
  * @property {KmlTreeNode[]} [children]
  * @property {string} [hint]
  * @property {string[]} [geomKinds]
@@ -51,6 +51,30 @@ function getDirectChild(parent, tagLc) {
 function getChildText(parent, tagLc) {
   const el = getDirectChild(parent, tagLc);
   return el?.textContent?.trim() || "";
+}
+
+/**
+ * Texto da primeira `<description>` filha direta (HTML/CDATA vira texto via textContent).
+ * Normalizado para uso em `title` / tooltip; truncado para nao estourar o UI.
+ * @param {Element|null|undefined} containerEl folder, placemark, document, etc.
+ * @param {{ maxLen?: number }} [opts]
+ * @returns {string}
+ */
+export function kmlDescriptionPlainText(containerEl, opts = {}) {
+  if (!containerEl || containerEl.nodeType !== 1) {
+    return "";
+  }
+  const desc = getDirectChild(containerEl, "description");
+  if (!desc) {
+    return "";
+  }
+  const raw = desc.textContent || "";
+  let t = raw.replace(/\s+/g, " ").trim();
+  const maxLen = opts.maxLen ?? 1800;
+  if (t.length > maxLen) {
+    t = `${t.slice(0, maxLen - 1)}…`;
+  }
+  return t;
 }
 
 /**
@@ -587,7 +611,7 @@ function parseFolder(folderEl, stats) {
   stats.folders += 1;
   const name = getChildText(folderEl, "name") || "Pasta";
   /** @type {KmlTreeNode} */
-  const node = { id: nextId(), kind: "folder", name, children: [] };
+  const node = { id: nextId(), kind: "folder", name, children: [], element: folderEl };
 
   parseFeatureChildren(folderEl, stats, (n) => node.children.push(n));
 
