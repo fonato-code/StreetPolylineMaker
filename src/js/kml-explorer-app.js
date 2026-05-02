@@ -121,6 +121,12 @@ export class KmlExplorerApp {
       this.elements.layerFilter.addEventListener("input", () => {
         if (this._filterDebounce != null) {
           window.clearTimeout(this._filterDebounce);
+          this._filterDebounce = null;
+        }
+        const raw = (this.elements.layerFilter.value || "").trim();
+        if (raw === "") {
+          this.applyTreeFilter();
+          return;
         }
         this._filterDebounce = window.setTimeout(() => {
           this._filterDebounce = null;
@@ -269,6 +275,10 @@ export class KmlExplorerApp {
     if (!ul) {
       return;
     }
+    // Sem isto, combinacao de filtro + lazy render pode deixar `hidden` preso em nos que deixam de bater com o criterio atual.
+    for (const li of root.querySelectorAll("li.kml-tree-item")) {
+      li.hidden = false;
+    }
     for (const li of ul.querySelectorAll(":scope > li.kml-tree-item")) {
       this.filterTreeItem(li, q);
     }
@@ -282,7 +292,10 @@ export class KmlExplorerApp {
   filterTreeItem(li, q) {
     const name = (li.dataset.kmlSearch || "").toLowerCase();
     const textOk = !q || name.includes(q);
-    const kinds = (li.dataset.geomKinds || "").split(",").filter(Boolean);
+    const kinds = (li.dataset.geomKinds || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     const geomOk = this.geomKindMatchesFilter(kinds);
     const selfMatch = textOk && geomOk;
 
