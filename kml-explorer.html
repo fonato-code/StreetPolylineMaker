@@ -84,7 +84,25 @@
       tabindex="0"></div>
 
     <div class="kml-explorer-map-wrap">
-      <div id="kmlExplorerMap" class="kml-explorer-map" aria-label="Mapa"></div>
+      <div id="kmlMapStage" class="map-stage kml-map-stage">
+        <div id="kmlExplorerMap" class="map-canvas kml-explorer-map" aria-label="Mapa"></div>
+        <div
+          id="kmlStreetViewResizeHandle"
+          class="street-view-resize-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-hidden="true"
+          hidden></div>
+        <div id="kmlStreetViewPanel" class="street-view-panel" hidden>
+          <div class="street-view-header">
+            <span class="street-view-title">Street View</span>
+            <button id="kmlCloseStreetView" class="icon-btn" type="button" title="Fechar Street View" aria-label="Fechar Street View">
+              <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div id="kmlStreetViewPano" class="street-view-canvas" aria-label="Panorama Street View"></div>
+        </div>
+      </div>
     </div>
     </div>
   </div>

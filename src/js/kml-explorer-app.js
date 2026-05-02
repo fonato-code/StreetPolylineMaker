@@ -35,9 +35,18 @@ export class KmlExplorerApp {
     this.mapReady = false;
     this.nodesById = new Map();
     this.overlaysById = new Map();
+    this.streetViewService = null;
+    this.streetViewPanorama = null;
+    this.streetViewVisible = false;
+    this.streetViewResize = { active: false, startY: 0, startHeight: 0 };
 
     this.elements = {
       mapEl: document.getElementById("kmlExplorerMap"),
+      mapStage: document.getElementById("kmlMapStage"),
+      streetViewPanel: document.getElementById("kmlStreetViewPanel"),
+      streetViewPano: document.getElementById("kmlStreetViewPano"),
+      closeStreetView: document.getElementById("kmlCloseStreetView"),
+      streetViewResizeHandle: document.getElementById("kmlStreetViewResizeHandle"),
       treeRoot: document.getElementById("kmlTreeRoot"),
       layerFilter: document.getElementById("kmlLayerFilter"),
       fileInput: document.getElementById("kmlFileInput"),
@@ -64,10 +73,15 @@ export class KmlExplorerApp {
   }
 
   triggerMapResize() {
-    if (!this.map || !this.google?.maps?.event) {
+    if (!this.google?.maps?.event) {
       return;
     }
-    this.google.maps.event.trigger(this.map, "resize");
+    if (this.map) {
+      this.google.maps.event.trigger(this.map, "resize");
+    }
+    if (this.streetViewPanorama && this.streetViewVisible) {
+      this.google.maps.event.trigger(this.streetViewPanorama, "resize");
+    }
   }
 
   attachUiEvents() {
@@ -152,6 +166,13 @@ export class KmlExplorerApp {
         this.applyTreeFilter();
       });
     });
+
+    this.elements.closeStreetView?.addEventListener("click", () => this.closeStreetViewPanel());
+    this.elements.streetViewResizeHandle?.addEventListener("mousedown", (event) =>
+      this.startStreetViewResize(event),
+    );
+    window.addEventListener("mousemove", (event) => this.handleStreetViewResize(event));
+    window.addEventListener("mouseup", () => this.stopStreetViewResize());
   }
 
   iconClassForGeomKind(kind) {
@@ -412,7 +433,139 @@ export class KmlExplorerApp {
         { featureType: "poi", stylers: [{ visibility: "off" }] },
       ],
     });
+    this.streetViewService = new this.google.maps.StreetViewService();
+    this.streetViewPanorama = null;
     this.mapReady = true;
+  }
+
+  ensureStreetViewPanorama() {
+    const panoEl = this.elements.streetViewPano;
+    if (!this.mapReady || !panoEl || this.streetViewPanorama) {
+      return;
+    }
+    this.streetViewPanorama = new this.google.maps.StreetViewPanorama(panoEl, {
+      visible: false,
+      addressControl: true,
+      linksControl: true,
+      panControl: true,
+      enableCloseButton: false,
+      fullscreenControl: false,
+    });
+  }
+
+  /**
+   * Abre o painel Street View junto ao ponto (como no editor principal).
+   * @param {{ lat: number, lng: number }} location
+   */
+  applyStreetViewNear(location) {
+    if (!this.mapReady || !this.streetViewService || !location) {
+      return;
+    }
+    this.ensureStreetViewPanorama();
+    if (!this.streetViewPanorama) {
+      return;
+    }
+    const stage = this.elements.mapStage;
+    const panel = this.elements.streetViewPanel;
+    const handle = this.elements.streetViewResizeHandle;
+    if (!stage || !panel || !handle) {
+      return;
+    }
+
+    this.streetViewService.getPanorama({ location, radius: 100 }, (data, status) => {
+      if (!this.mapReady || !this.streetViewPanorama) {
+        return;
+      }
+      if (status !== this.google.maps.StreetViewStatus.OK) {
+        this.setStatus("Street View indisponivel perto deste ponto.", true);
+        return;
+      }
+      this.streetViewPanorama.setPano(data.location.pano);
+      this.streetViewPanorama.setPov({ heading: 0, pitch: 0 });
+      this.streetViewPanorama.setVisible(true);
+      panel.hidden = false;
+      handle.hidden = false;
+      stage.classList.add("map-stage--split");
+      const panelHeight = stage.style.getPropertyValue("--street-view-panel-height").trim();
+      if (!panelHeight) {
+        const h = Math.round(stage.clientHeight * 0.38);
+        stage.style.setProperty("--street-view-panel-height", `${Math.max(160, Math.min(h, 520))}px`);
+      }
+      this.streetViewVisible = true;
+      window.requestAnimationFrame(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+        this.google.maps.event.trigger(this.streetViewPanorama, "resize");
+      });
+    });
+  }
+
+  closeStreetViewPanel() {
+    if (this.streetViewPanorama) {
+      this.streetViewPanorama.setVisible(false);
+    }
+    const panel = this.elements.streetViewPanel;
+    const handle = this.elements.streetViewResizeHandle;
+    const stage = this.elements.mapStage;
+    if (panel) {
+      panel.hidden = true;
+    }
+    if (handle) {
+      handle.hidden = true;
+    }
+    if (stage) {
+      stage.classList.remove("map-stage--split");
+    }
+    this.streetViewVisible = false;
+    if (this.mapReady && this.google?.maps?.event) {
+      window.requestAnimationFrame(() => {
+        this.google.maps.event.trigger(this.map, "resize");
+      });
+    }
+  }
+
+  startStreetViewResize(event) {
+    const panel = this.elements.streetViewPanel;
+    if (!this.streetViewVisible || !panel) {
+      return;
+    }
+    this.streetViewResize.active = true;
+    this.streetViewResize.startY = event.clientY;
+    this.streetViewResize.startHeight = panel.getBoundingClientRect().height;
+    document.body.classList.add("is-resizing-street");
+    event.preventDefault();
+  }
+
+  handleStreetViewResize(event) {
+    if (!this.streetViewResize.active) {
+      return;
+    }
+    const stage = this.elements.mapStage;
+    if (!stage) {
+      return;
+    }
+    const rect = stage.getBoundingClientRect();
+    const handleHeight = 6;
+    const mapMin = 120;
+    const panelMin = 120;
+    const maxPanel = rect.height - mapMin - handleHeight;
+    const delta = event.clientY - this.streetViewResize.startY;
+    let next = this.streetViewResize.startHeight - delta;
+    next = Math.max(panelMin, Math.min(maxPanel, next));
+    stage.style.setProperty("--street-view-panel-height", `${Math.round(next)}px`);
+    if (this.map) {
+      this.google.maps.event.trigger(this.map, "resize");
+    }
+    if (this.streetViewPanorama) {
+      this.google.maps.event.trigger(this.streetViewPanorama, "resize");
+    }
+  }
+
+  stopStreetViewResize() {
+    if (!this.streetViewResize.active) {
+      return;
+    }
+    this.streetViewResize.active = false;
+    document.body.classList.remove("is-resizing-street");
   }
 
   setStatus(message, isError = false) {
@@ -421,6 +574,7 @@ export class KmlExplorerApp {
   }
 
   clearKmlState() {
+    this.closeStreetViewPanel();
     for (const ovs of this.overlaysById.values()) {
       for (const o of ovs) {
         o.setMap(null);
@@ -720,21 +874,26 @@ export class KmlExplorerApp {
 
     for (const g of geometries) {
       if (g.type === "Point" && g.path?.[0]) {
-        list.push(
-          new this.google.maps.Marker({
-            position: g.path[0],
-            map: null,
-            title: node.name,
-            icon: {
-              path: this.google.maps.SymbolPath.CIRCLE,
-              scale: 6,
-              fillColor: markerFill,
-              fillOpacity: markerFillOpacity > 0 ? markerFillOpacity : 1,
-              strokeColor: "#020617",
-              strokeWeight: 1.5,
-            },
-          }),
-        );
+        const marker = new this.google.maps.Marker({
+          position: g.path[0],
+          map: null,
+          title: node.name,
+          icon: {
+            path: this.google.maps.SymbolPath.CIRCLE,
+            scale: 6,
+            fillColor: markerFill,
+            fillOpacity: markerFillOpacity > 0 ? markerFillOpacity : 1,
+            strokeColor: "#020617",
+            strokeWeight: 1.5,
+          },
+        });
+        marker.addListener("click", () => {
+          const p = marker.getPosition();
+          if (p) {
+            this.applyStreetViewNear({ lat: p.lat(), lng: p.lng() });
+          }
+        });
+        list.push(marker);
       } else if (g.type === "LineString" && g.path?.length) {
         list.push(
           new this.google.maps.Polyline({
